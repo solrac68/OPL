@@ -1,0 +1,1205 @@
+/*============================================================================================================================================================================================================
+													      ___________________________________________________________________________
+                                                         						     |                                                                           |
+													     | ARCHIVO DE DATOS PARA EL MODELO DE PROGRAMACION DE RECURSOS DE GENERACION |
+													     |                                                                           |
+                        						                                      ===========================================================================													      
+=============================================================================================================================================================================================================*/
+ 
+																 
+DBConnection Faltante("access","InfoFaltante.accdb");			/*Conexion a la base de datos de Access con la informacion faltante*/
+DBConnection DRP("odbc","odbc_e/TRABAJO/DRPTRB02");  				/*Conexion a la base de datos de DRP usuario: TRABAJO, contraseña: DRPTRB02*/
+//DBConnection DRP("odbc_d","RDSPCND8/CHINCAPIE/Polonia47*");
+DBConnection DRPe("oracle11","TRABAJO/DRPTRB02@RDSPCND8");
+//DBConnection DRPe("oracle11","CHINCAPIE/Polonia47*@RDSPCND8");
+
+
+CodCaso="<codcaso>";
+//CodCaso="<codcaso>";
+            					
+Version="<version>";
+//Version="<version>";												/*Version del caso de analisis en DRP*/
+
+Esquema="IDEAL";												/*Esquema del caso de analisis en DRP*/
+
+Descripcion_S 					from DBRead(DRP,				/*Descripcion del caso de analisis tomada de DRP*/
+								"SELECT DESCRIPCION FROM IDEAL.DRPT_ADMINISTRARCASO_BAS WHERE CODCASO=?")
+								(CodCaso); 
+
+Fecha_S 						from DBRead(DRP,				/*Fecha del caso de analisis tomada de DRP*/
+								"SELECT  TO_CHAR(TO_DATE(FECHA,'DD/MM/YYYY')) AS FECHA FROM IDEAL.DRPT_ADMINISTRARCASO_BAS WHERE CODCASO=?")
+								(CodCaso); 								
+								
+TipoMod_S 						from DBRead(DRP,				/*Tipo de modelo que debe aplicar segun el codigo del caso.  PID: Preideal, IDE: Ideal, DPC: Despacho, RDP: Redespacho*/
+								"SELECT CASE 	WHEN (DESCRIPCION LIKE '%deal%' AND ESCENARIO NOT LIKE 'DESP. IDEAL') THEN 'PID' \
+            									WHEN (DESCRIPCION LIKE '%deal%' AND ESCENARIO LIKE 'DESP. IDEAL') THEN 'IDE' \
+            									WHEN (DESCRIPCION NOT LIKE '%deal%' AND ESCENARIO LIKE 'TIES') THEN 'DPC'  \
+					            				WHEN (DESCRIPCION NOT LIKE '%deal%' AND ESCENARIO LIKE 'REDESPACHO') THEN 'RDP' \
+					            END AS TIPOMOD FROM IDEAL.DRPT_ADMINISTRARCASO_BAS WHERE CODCASO=?")
+								(CodCaso); 							
+										
+Pini_S 							from DBRead (DRP,				/*Periodo Inicial*/
+            					"SELECT CAST(VALOR AS INTEGER) FROM IDEAL.DRPT_TERMINOVALORES_BAS WHERE CODCASO=? AND VERSION=? AND CODTERMINO='PRORD'")
+            					(CodCaso,Version);
+            					
+CostoDespachoIni_S 				from DBRead (DRP,			/*Costo del despacho para los periodos anteriores a Pini*/
+            					"SELECT FO1.Fpap+FO2.Fofe+FO3.Fofe as CostoInicial  FROM \
+								 (SELECT CASE WHEN SUM(AP.PAP*AR.VALOR) IS NULL THEN 0 ELSE SUM(AP.PAP*AR.VALOR) END AS Fpap FROM \
+								 	(SELECT R.CODNUMERO,  P.PERIODO, P.PRECIO AS PAP FROM  IDEAL.DRPT_RECURSOGENERACION_BAS R, IDEAL.DRPT_COSTOARRAPARAXRECURSO_BAS P, IDEAL.DRPT_MODRAMPAPLICAR_BAS C \
+								 	WHERE R.CODCASO=? AND P.CODCASO=R.CODCASO AND C.CODCASO=R.CODCASO AND R.VERSION=? AND P.VERSION=R.VERSION AND C.VERSION=R.VERSION \
+								 	AND P.CODRECURSO=R.CODRECURSO AND C.CODRECURSO=R.CODRECURSO AND R.ESTADO='ACTIVO' AND C.CONFIGURACION=P.CONFIGURACION AND C.PERIODO=P.PERIODO \
+								 	AND R.DESPACHOCENTRAL='S' AND R.TIPO LIKE 'T%' AND R.TIPO<>'TI'AND P.PERIODO<?) AP, \
+								 	(SELECT  SUBINDICE1, CAST(SUBINDICE2 AS INTEGER) PERIODO, VALOR FROM DRPT_DATOSALIDA_RES WHERE CODCASO=?  AND VERSION=? AND CODVARIABLE='RGAQF' AND CAST(SUBINDICE2 AS INTEGER)<? AND TIPO='PRIMAL') AR \
+								 	WHERE AR.SUBINDICE1=AP.CODNUMERO AND AR.PERIODO=AP.PERIODO) FO1, \
+								 (SELECT CASE WHEN SUM(R.VALOR*Ofe.PRECIO) IS NULL THEN 0 ELSE SUM(R.VALOR*Ofe.PRECIO) END AS Fofe FROM \
+								 	(SELECT CODRECURSO, PERIODO, VALOR FROM IDEAL.DRPT_GENERACIONXRECURSO_RES WHERE CODCASO=? AND VERSION=? AND TIPO='PRIMAL' AND PERIODO<?) R, \
+								 	(SELECT R.CODRECURSO, O.PERIODO, O.PRECIO FROM IDEAL.DRPT_OFERTAXSGRECURSO_BAS O, IDEAL.DRPT_RECURSOGENERACION_BAS R WHERE O.CODCASO=? AND O.VERSION=? AND R.CODCASO=O.CODCASO \
+								 	AND R.VERSION=O.VERSION AND O.CODRECURSO=R.CODRECURSO  AND R.ESTADO='ACTIVO' AND PERIODO<?) Ofe \
+								 	WHERE R.CODRECURSO=Ofe.CODRECURSO AND R.PERIODO=Ofe.PERIODO) FO2, \
+								 (SELECT CASE WHEN SUM(Ra.VALOR*CR.VALOR) IS NULL THEN 0 ELSE SUM(Ra.VALOR*CR.VALOR) END AS Fofe FROM \
+        							(SELECT CODSUBAREA, PERIODO, VALOR FROM IDEAL.DRPT_RACIONAMIENTOSUBAREA_RES WHERE CODCASO=? AND VERSION=? AND TIPO='PRIMAL' AND PERIODO<?) Ra, \
+        							(SELECT S.CODSUBAREA, CS.PERIODO, CS.VALOR FROM IDEAL.DRPT_SUBAREA_BAS S, IDEAL.DRPT_COSTORACMIENTOSPSAR_BAS CS WHERE S.CODCASO=? AND S.VERSION=? AND  S.CODCASO=CS.CODCASO \
+         							 AND S.VERSION=CS.VERSION AND S.CODSUBAREA=CS.CODSUBAREA AND S.ESTADO='ACTIVO' AND CS.PERIODO<?) CR \
+    								WHERE Ra.CODSUBAREA=CR.CODSUBAREA AND Ra.PERIODO=CR.PERIODO) FO3")
+            					(CodCaso,Version,Pini,CodCaso,Version,Pini,CodCaso,Version,Pini,CodCaso,Version,Pini,CodCaso,Version,Pini,CodCaso,Version,Pini);             					
+
+Pfin=24;														/*Periodo Final*/
+
+Demanda 						from DBRead(DRP,				/*Demanda total del sistema para cada periodo*/
+								"SELECT PERIODO, SUM(VALOR) AS VALOR FROM  IDEAL.DRPT_DEMANDASUBAREA_BAS WHERE CODCASO=? AND  VERSION=?  AND PERIODO<=? GROUP BY PERIODO")
+								(CodCaso,Version,Pfin);
+								
+								
+								
+/*|=================================================================================INFORMACION GENERAL DE LOS RECURSOS========================================================================================|*/
+Recursos						from DBRead(DRP,				/*Recursos Activos en el Sistema*/
+								"SELECT  NOMBRE FROM IDEAL.DRPT_RECURSOGENERACION_BAS WHERE CODCASO=? AND VERSION=? AND ESTADO='ACTIVO'")
+								(CodCaso,Version); 
+								
+Codigo_Rec						from DBRead(DRP,				/*Vector que entrega para cada recurso activo en el Sistema el codigo PLT de DRP*/
+								"SELECT  NOMBRE, CODRECURSO FROM IDEAL.DRPT_RECURSOGENERACION_BAS WHERE CODCASO=? AND VERSION=? AND ESTADO='ACTIVO'")
+								(CodCaso,Version); 		
+								
+Numero_Rec						from DBRead(DRP,				/*Vector que entrega para cada recursos activo en el Sistema el CODNUMERO de DRP*/
+								"SELECT  NOMBRE, CAST(CODNUMERO AS VARCHAR(12)) FROM IDEAL.DRPT_RECURSOGENERACION_BAS WHERE CODCASO=? AND VERSION=? AND ESTADO='ACTIVO'")
+								(CodCaso,Version);								
+
+Rec_Termicos 					from DBRead(DRP,				/*Conjunto de recursos termicos despachados centralmente*/
+           						"SELECT NOMBRE FROM IDEAL.DRPT_RECURSOGENERACION_BAS WHERE CODCASO=? AND VERSION=? AND ESTADO='ACTIVO' \
+           						AND DESPACHOCENTRAL='S' AND TIPO LIKE 'T%' AND TIPO<>'TI'")
+           						(CodCaso,Version); 
+           						
+Rec_Hidraulico 					from DBRead(DRP,				/*Recursos Hidraulicos*/
+           						"SELECT NOMBRE FROM IDEAL.DRPT_RECURSOGENERACION_BAS WHERE CODCASO=? AND VERSION=? AND ESTADO='ACTIVO' AND DESPACHOCENTRAL='S' AND TIPO LIKE 'H%'")
+           						(CodCaso,Version);        						
+
+Rec_Solar 					from DBRead(DRP,				/*Recursos Hidraulicos*/
+           						"SELECT NOMBRE FROM IDEAL.DRPT_RECURSOGENERACION_BAS WHERE CODCASO=? AND VERSION=? AND ESTADO='ACTIVO' AND DESPACHOCENTRAL='S' AND TIPO LIKE 'S%'")
+           						(CodCaso,Version);   
+           						
+Rec_Eolico 					from DBRead(DRP,				/*Recursos Hidraulicos*/
+           						"SELECT NOMBRE FROM IDEAL.DRPT_RECURSOGENERACION_BAS WHERE CODCASO=? AND VERSION=? AND ESTADO='ACTIVO' AND DESPACHOCENTRAL='S' AND TIPO LIKE 'E%'")
+           						(CodCaso,Version);              						
+
+Rec_noCentral 					from DBRead(DRP,				/*Recursos no Despachados Centralmente*/
+           						"SELECT NOMBRE FROM IDEAL.DRPT_RECURSOGENERACION_BAS WHERE CODCASO=? AND VERSION=? AND ESTADO='ACTIVO' AND DESPACHOCENTRAL='N'")
+           						(CodCaso,Version);  
+           						
+Rec_Internacional 				from DBRead(DRP,				/*Recursos/Enlaces Internacionales*/
+								"SELECT NOMBRE FROM IDEAL.DRPT_RECURSOGENERACION_BAS WHERE CODCASO=? AND VERSION=? AND ESTADO='ACTIVO' AND DESPACHOCENTRAL='S' AND TIPO = 'TI'")
+								(CodCaso,Version); 	
+																					
+RH_ModRamp 						from DBRead(DRP,				/*Recursos hidraulicos con modelo de rampas de subida y bajada*/					
+								"SELECT  DISTINCT R.NOMBRE FROM  \
+									(SELECT DISTINCT RECURSO FROM IDEAL.DRPT_CONTROLRESTRICCION_BAS WHERE CODCASO=? AND VERSION=?) C, \
+									(SELECT NOMBRE, CODRECURSO FROM IDEAL.DRPT_RECURSOGENERACION_BAS WHERE ESTADO='ACTIVO' AND CODCASO=? AND VERSION=? \
+									AND DESPACHOCENTRAL='S' AND TIPO LIKE 'H%') R \
+								WHERE R.CODRECURSO=C.RECURSO")
+								(CodCaso,Version,CodCaso,Version);																					
+
+MinTecRecurso	 				from DBRead(DRP,				/*Minimo Tecnico de los Recursos a excepci�n de los t�rmicos*/          
+								"SELECT NOMBRE, MINTECNICO FROM IDEAL.DRPT_RECURSOGENERACION_BAS WHERE CODCASO=? AND VERSION=? AND ESTADO='ACTIVO' AND TIPO IN('H','S','E') AND DESPACHOCENTRAL='S'")
+								(CodCaso,Version); 
+
+MaximoRecurso					from DBRead(DRP,				/*Maximo valor ingresado por perfiles para cada recurso en cada periodo*/
+								"SELECT RM.NOMBRE, RM.PERIODO, MIN(RM.VALMAX) AS VALMAX FROM \
+    							((SELECT R.NOMBRE, M.PERIODO, M.VALMAX FROM IDEAL.DRPT_RECURSOGENERACION_BAS R, IDEAL.DRPT_MAXMINTECNICORECURSO_BAS M, \
+      							(SELECT R.NOMBRE,R.CODRECURSO FROM IDEAL.DRPT_TERMINOVALORES_BAS T, IDEAL.DRPT_RECURSOGENERACION_BAS R WHERE T.CODCASO=? AND T.VERSION=? AND R.CODCASO=T.CODCASO \
+          						AND R.VERSION=T.VERSION AND R.CODNUMERO=TO_NUMBER(SUBINDICES) AND T.CODTERMINO='RGPRMXFG1' AND T.VALOR=1) BANDERA \
+    							WHERE R.CODCASO=? AND R.VERSION=?	AND M.CODCASO=R.CODCASO AND M.VERSION=R.VERSION AND M.CODRECURSO=R.CODRECURSO AND R.CODRECURSO=BANDERA.CODRECURSO AND M.CODRECURSO=BANDERA.CODRECURSO \
+    							AND M.PERIODO<=? AND R.ESTADO='ACTIVO') \
+    							UNION \
+    							(SELECT R.NOMBRE,D.PERIODO,99999 AS VALMAX FROM IDEAL.DRPV_DISPONIBILIDADRECURSO_BAS D, IDEAL.DRPT_RECURSOGENERACION_BAS R WHERE D.CODCASO=? AND D.VERSION=? \
+    							AND R.CODCASO=D.CODCASO AND R.VERSION=D.VERSION AND D.CODRECURSO=R.CODRECURSO AND R.ESTADO='ACTIVO' AND D.PERIODO<=?)) RM \
+								GROUP BY RM.NOMBRE, RM.PERIODO")					
+								(CodCaso,Version,CodCaso,Version,Pfin,CodCaso,Version,Pfin);
+								
+MaximoRecursoUnd				from DBRead(DRP,				/*Maximo valor del recurso calculado con el maximo por unidad ingresado por perfiles en las unidades*/
+								"SELECT R.NOMBRE, MX.PERIODO, SUM(MX.VALMAX) AS VALMAX FROM \
+  								(SELECT M.CODRECURSO, M.NOMBRE, M.PERIODO, MIN(VALMAX) AS VALMAX FROM \
+    							(SELECT U.CODRECURSO,  U.NOMBRE, M.PERIODO, M.VALMAX FROM IDEAL.DRPT_MINMAXGENERACIONUNI_BAS M, IDEAL.DRPT_UNIDADGENERACION_BAS U, \
+								(SELECT U.CODRECURSO, U.NOMBRE FROM IDEAL.DRPT_TERMINOVALORES_BAS T, IDEAL.DRPT_UNIDADGENERACION_BAS U WHERE T.CODCASO=? AND U.CODCASO=T.CODCASO AND T.VERSION=? \
+        						AND U.VERSION=T.VERSION AND T.CODTERMINO='UGPRMXFG1' AND T.SUBINDICES=U.CODNUMERO AND T.VALOR=1 AND U.ESTADO='ACTIVO') B \
+    							WHERE M.CODCASO=? AND U.CODCASO=M.CODCASO AND M.VERSION=? AND U.VERSION=M.VERSION AND M.CODUNIDAD=U.CODUNIDAD AND B.NOMBRE=U.NOMBRE AND M.PERIODO<=? \
+    							UNION \
+    							SELECT U.CODRECURSO, U.NOMBRE, D.PERIODO, D.VALOR AS VALMAX FROM IDEAL.DRPT_DISPONIBILIDADUNI_BAS D, IDEAL.DRPT_UNIDADGENERACION_BAS U WHERE U.CODCASO=? AND U.CODCASO = D.CODCASO \
+    							AND U.VERSION=? AND U.VERSION = D.VERSION AND U.CODUNIDAD = D.CODUNIDAD AND U.ESTADO='ACTIVO')M GROUP BY M.CODRECURSO, M.NOMBRE, M.PERIODO) MX, \
+  								(SELECT CODRECURSO, NOMBRE FROM IDEAL.DRPT_RECURSOGENERACION_BAS WHERE CODCASO=? AND VERSION=? AND ESTADO='ACTIVO') R \
+								WHERE MX.CODRECURSO=R.CODRECURSO GROUP BY R.NOMBRE, MX.PERIODO")								
+								(CodCaso,Version,CodCaso,Version,Pfin,CodCaso,Version,CodCaso,Version);
+								
+MinimoRecursoObl 				from DBRead(DRP,				/*Minimo valor ingresado por perfiles para cada recurso en cada periodo, se toma solo si tiene el checkbox activo*/
+            					"SELECT R.NOMBRE, M.PERIODO, M.VALMIN FROM IDEAL.DRPT_TERMINOVALORES_BAS T, IDEAL.DRPT_RECURSOGENERACION_BAS R, IDEAL.DRPT_MAXMINTECNICORECURSO_BAS M WHERE T.CODCASO=? \
+            					AND T.VERSION=? AND R.CODCASO=T.CODCASO AND R.VERSION=T.VERSION AND M.CODCASO=T.CODCASO AND M.VERSION=T.VERSION AND T.CODTERMINO='RGMNOBPRFG' \
+            					AND R.CODNUMERO=TO_NUMBER(SUBSTR(T.SUBINDICES,1,INSTR(T.SUBINDICES,',', 1, 1)-1)) AND T.VALOR=1 AND R.ESTADO='ACTIVO' AND M.CODRECURSO=R.CODRECURSO \
+            					AND M.PERIODO=TO_NUMBER(SUBSTR(T.SUBINDICES,INSTR(T.SUBINDICES,',', 1,1)+1, LENGTH(T.SUBINDICES))) AND M.PERIODO<=?")
+            					(CodCaso,Version,Pfin);			
+
+CandidataInflex 				from DBRead(DRP,				/*Generacion minima obligatoria ingresada por perfiles de recurso en la columna Candidato Inflexible. SOLO APLICA PARA EL IDEAL*/
+								"SELECT R.NOMBRE, M.PERIODO, M.CANINFLEX FROM  IDEAL.DRPT_RECURSOGENERACION_BAS R, IDEAL.DRPT_MAXMINTECNICORECURSO_BAS M \
+  								WHERE  R.CODCASO=? AND R.VERSION=? AND R.VERSION=M.VERSION AND M.CODCASO= R.CODCASO AND M.VERSION=R.VERSION  \
+            					AND R.ESTADO='ACTIVO' AND M.CODRECURSO=R.CODRECURSO AND M.PERIODO<=?  AND CANINFLEX>0 ORDER BY 1,2")
+            					(CodCaso,Version,Pfin);	              					
+            					
+TechoEnficc 					from DBRead(DRP,				/*Maximo valor permitido al recurso para las exportaciones*/
+								"SELECT R.NOMBRE, TO_NUMBER(SUBSTR(E.CODIGO,INSTR(E.CODIGO,'_', 1,1)+1, LENGTH(E.CODIGO))) PERIODO, E.VALOR FROM IDEAL.DRPV_GENXRECENFICC_FOR E, IDEAL.DRPT_RECURSOGENERACION_BAS R \
+								WHERE E.CODCASO=? AND E.VERSION=? AND R.CODCASO=E.CODCASO AND R.VERSION=E.VERSION AND R.ESTADO='ACTIVO' AND R.CODNUMERO=TO_NUMBER(SUBSTR(E.CODIGO,1,INSTR(E.CODIGO,'_', 1, 1)-1))")
+            					(CodCaso,Version);              									
+
+/*|__________________________________________________________________________________________________________________________________________________________________________________________________________|*/
+
+
+/*|=================================================================================INFORMACION GENERAL DE LAS UNIDADES========================================================================================|*/
+RecursoUnidades 				from DBRead (DRP,				/*Relaciona a que recurso pertenece cada unidad*/ 	
+            					"SELECT DISTINCT R.NOMBRE, U.NOMBRE FROM IDEAL.DRPT_UNIDADGENERACION_BAS U, IDEAL.DRPT_RECURSOGENERACION_BAS R WHERE U.CODCASO=? AND R.CODCASO=U.CODCASO AND U.VERSION=? \
+								AND R.VERSION=U.VERSION AND U.ESTADO='ACTIVO' AND U.CODRECURSO=R.CODRECURSO AND R.ESTADO='ACTIVO'")
+            					(CodCaso,Version);
+
+Unidades 						from DBRead (DRP,				/*Conjunto de unidades activas en el sistema*/
+            					"SELECT DISTINCT NOMBRE FROM IDEAL.DRPT_UNIDADGENERACION_BAS WHERE CODCASO=? AND VERSION=? AND ESTADO='ACTIVO'")
+            					(CodCaso,Version);     
+
+Codigo_Und						from DBRead(DRP,				/*Vector que entrega para cada unidad activa en el Sistema el codigo UNI de DRP*/
+								"SELECT  NOMBRE, CODUNIDAD FROM IDEAL.DRPT_UNIDADGENERACION_BAS WHERE CODCASO=? AND VERSION=? AND ESTADO='ACTIVO'")
+								(CodCaso,Version); 		
+								
+Numero_Und						from DBRead(DRP,				/*Vector que entrega para cada unidad activa en el Sistema el CODNUMERO de DRP*/
+								"SELECT  NOMBRE, CAST(CODNUMERO AS VARCHAR(12)) FROM IDEAL.DRPT_UNIDADGENERACION_BAS WHERE CODCASO=? AND VERSION=? AND ESTADO='ACTIVO'")
+								(CodCaso,Version);	            					
+            					
+Und_Termica 					from DBRead(DRP,				/*Conjunto de unidades termicas despachadas centralmente*/
+           						"SELECT U.NOMBRE FROM IDEAL.DRPT_UNIDADGENERACION_BAS U, IDEAL.DRPT_RECURSOGENERACION_BAS R WHERE U.CODCASO=? AND R.CODCASO=U.CODCASO AND U.VERSION=? AND R.VERSION=U.VERSION AND \
+           						U.ESTADO='ACTIVO' AND U.CODRECURSO=R.CODRECURSO AND R.ESTADO='ACTIVO' AND R.DESPACHOCENTRAL='S' AND R.TIPO LIKE 'T%' AND R.TIPO<>'TI'")
+           						(CodCaso,Version); 
+           						
+Und_Hidraulica 					from DBRead(DRP,				/*Unidades Hidraulicas*/
+           						"SELECT U.NOMBRE FROM IDEAL.DRPT_UNIDADGENERACION_BAS U, IDEAL.DRPT_RECURSOGENERACION_BAS R WHERE U.CODCASO=? AND R.CODCASO=U.CODCASO AND U.VERSION=? AND R.VERSION=U.VERSION AND \
+           						U.ESTADO='ACTIVO' AND U.CODRECURSO=R.CODRECURSO AND R.ESTADO='ACTIVO' AND R.DESPACHOCENTRAL='S' AND R.TIPO LIKE 'H%'")
+           						(CodCaso,Version); 
+           						
+Und_Solar 					from DBRead(DRP,				/*Unidades Solares*/
+           						"SELECT U.NOMBRE FROM IDEAL.DRPT_UNIDADGENERACION_BAS U, IDEAL.DRPT_RECURSOGENERACION_BAS R WHERE U.CODCASO=? AND R.CODCASO=U.CODCASO AND U.VERSION=? AND R.VERSION=U.VERSION AND \
+           						U.ESTADO='ACTIVO' AND U.CODRECURSO=R.CODRECURSO AND R.ESTADO='ACTIVO' AND R.DESPACHOCENTRAL='S' AND R.TIPO LIKE 'S%'")
+           						(CodCaso,Version); 
+           						
+Und_Eolica 					from DBRead(DRP,				/*Unidades E�licas*/
+           						"SELECT U.NOMBRE FROM IDEAL.DRPT_UNIDADGENERACION_BAS U, IDEAL.DRPT_RECURSOGENERACION_BAS R WHERE U.CODCASO=? AND R.CODCASO=U.CODCASO AND U.VERSION=? AND R.VERSION=U.VERSION AND \
+           						U.ESTADO='ACTIVO' AND U.CODRECURSO=R.CODRECURSO AND R.ESTADO='ACTIVO' AND R.DESPACHOCENTRAL='S' AND R.TIPO LIKE 'E%'")
+           						(CodCaso,Version);            						
+
+Und_noCentral 					from DBRead(DRP,				/*Unidades no Despachados Centralmente*/
+           						"SELECT U.NOMBRE FROM IDEAL.DRPT_UNIDADGENERACION_BAS U, IDEAL.DRPT_RECURSOGENERACION_BAS R WHERE U.CODCASO=? AND R.CODCASO=U.CODCASO AND U.VERSION=? AND R.VERSION=U.VERSION AND \
+           						U.ESTADO='ACTIVO' AND U.CODRECURSO=R.CODRECURSO AND R.ESTADO='ACTIVO' AND R.DESPACHOCENTRAL='N'")
+           						(CodCaso,Version);  
+           						
+Und_Internacional 				from DBRead(DRP,				/*Unidades/Enlaces Internacionales*/
+								"SELECT U.NOMBRE FROM IDEAL.DRPT_UNIDADGENERACION_BAS U, IDEAL.DRPT_RECURSOGENERACION_BAS R WHERE U.CODCASO=? AND R.CODCASO=U.CODCASO AND U.VERSION=? AND R.VERSION=U.VERSION \
+								AND U.ESTADO='ACTIVO' AND U.CODRECURSO=R.CODRECURSO AND R.ESTADO='ACTIVO' AND R.TIPO='TI' AND R.DESPACHOCENTRAL='S'")
+								(CodCaso,Version);      
+								
+MaximoUnidad					from DBRead(DRP,				/*Maximo valor ingresado por perfiles para cada unidad en cada periodo*/
+								"SELECT M.NOMBRE, M.PERIODO, MIN(VALMAX) AS VALMAX FROM \
+    							(SELECT U.CODRECURSO,  U.NOMBRE, M.PERIODO, M.VALMAX FROM IDEAL.DRPT_MINMAXGENERACIONUNI_BAS M, IDEAL.DRPT_UNIDADGENERACION_BAS U,\
+      							(SELECT U.CODRECURSO, U.NOMBRE FROM IDEAL.DRPT_TERMINOVALORES_BAS T, IDEAL.DRPT_UNIDADGENERACION_BAS U WHERE T.CODCASO=? AND U.CODCASO=T.CODCASO AND T.VERSION=? \
+      							AND U.VERSION=T.VERSION AND T.CODTERMINO='UGPRMXFG1' AND T.SUBINDICES=U.CODNUMERO AND T.VALOR=1 AND U.ESTADO='ACTIVO') B \
+          						WHERE M.CODCASO=? AND U.CODCASO=M.CODCASO AND M.VERSION=? AND U.VERSION=M.VERSION AND M.CODUNIDAD=U.CODUNIDAD AND B.NOMBRE=U.NOMBRE AND M.PERIODO<=? \
+      							UNION \
+    							SELECT U.CODRECURSO, U.NOMBRE, D.PERIODO, 99999 AS VALMAX FROM IDEAL.DRPT_DISPONIBILIDADUNI_BAS D, IDEAL.DRPT_UNIDADGENERACION_BAS U WHERE U.CODCASO=? AND U.CODCASO = D.CODCASO \
+    							AND U.VERSION=? AND U.VERSION = D.VERSION AND U.CODUNIDAD = D.CODUNIDAD AND U.ESTADO='ACTIVO')M  GROUP BY M.NOMBRE, M.PERIODO")					
+								(CodCaso,Version,CodCaso,Version,Pfin,CodCaso,Version);		
+           					
+MT_Und							from DBRead (DRP,				/*Minimo tecnico de las unidades hidraulicas*/
+            					"SELECT NOMBRE, MINTECNICO FROM IDEAL.DRPT_UNIDADGENERACION_BAS WHERE CODCASO=? AND VERSION=? AND ESTADO='ACTIVO'")                                         
+            					(CodCaso,Version);
+
+RecH_MT_Esp 					from DBRead (Faltante,			/*Recursos con unidades hidraulicas con minimo tecnico inicial*/
+            					"SELECT NOMBRE FROM OPL_RECH_MINT_ESP_DAT");
+            					
+MinUnd_Esp						from DBRead (DRP,				/*Minimo ingresado por perfiles para las unidades*/
+            					"SELECT U.NOMBRE, M.PERIODO, M.VALMIN FROM \
+  								(SELECT NOMBRE, CODUNIDAD, CODRECURSO FROM IDEAL.DRPT_UNIDADGENERACION_BAS WHERE CODCASO =? AND VERSION=? AND ESTADO='ACTIVO') U, \
+  								(SELECT CODRECURSO FROM IDEAL.DRPT_RECURSOGENERACION_BAS WHERE CODCASO =? AND VERSION=? AND ESTADO='ACTIVO' AND DESPACHOCENTRAL='S' AND TIPO LIKE 'H%') R, \
+  								(SELECT CODUNIDAD, PERIODO, VALMIN FROM IDEAL.DRPT_MINMAXGENERACIONUNI_BAS WHERE CODCASO =? AND VERSION=?) M \
+								WHERE U.CODUNIDAD=M.CODUNIDAD AND U.CODRECURSO=R.CODRECURSO")                                         
+            					(CodCaso,Version,CodCaso,Version,CodCaso,Version);      
+
+Cadena_Pagua					from DBRead (Faltante,			/*Relacion entre las unidades de la cadena Pagua*/
+            					"SELECT PARAISO, GUACA FROM OPL_CADENAPAGUA_DAT");	
+
+Unds_Paraiso					from DBRead (Faltante,			/*Relacion entre las unidades de la cadena Pagua*/
+            					"SELECT DISTINCT PARAISO FROM OPL_CADENAPAGUA_DAT");	
+            					
+MinObl_Und						from DBRead (DRP,				/*Minimo ingresado por perfiles para las unidades con check box activo*/
+								"SELECT U.NOMBRE, M.PERIODO, M.VALMIN FROM \
+	 								(SELECT CODUNIDAD, PERIODO, VALMAX, VALMIN FROM IDEAL.DRPT_MINMAXGENERACIONUNI_BAS WHERE CODCASO=? AND VERSION=?) M, \
+									(SELECT NOMBRE, CODUNIDAD, CODNUMERO FROM IDEAL.DRPT_UNIDADGENERACION_BAS WHERE CODCASO=? AND VERSION=? AND ESTADO='ACTIVO') U, \
+  									(SELECT SUBINDICES, TO_NUMBER(SUBSTR(SUBINDICES,1,INSTR(SUBINDICES,',', 1, 1)-1)) AS CODNUMERO, TO_NUMBER(SUBSTR(SUBINDICES,INSTR(SUBINDICES,',', 1,1)+1, LENGTH(SUBINDICES))) AS PERIODO \
+    									FROM IDEAL.DRPT_TERMINOVALORES_BAS WHERE CODCASO=? AND VERSION=? AND CODTERMINO LIKE 'UGMNOBFG' AND VALOR=1)  T1, \
+  									(SELECT  TO_NUMBER(SUBINDICES)AS CODNUMERO FROM IDEAL.DRPT_TERMINOVALORES_BAS WHERE CODCASO=? AND VERSION=? AND CODTERMINO LIKE 'UGPRMNFG' AND VALOR=1) T2 \
+								WHERE M.CODUNIDAD=U.CODUNIDAD AND U.CODNUMERO=T1.CODNUMERO AND U.CODNUMERO=T2.CODNUMERO AND T1.PERIODO=M.PERIODO")
+								(CodCaso,Version,CodCaso,Version,CodCaso,Version,CodCaso,Version);
+
+MaxObl_Und						from DBRead (DRP,				/*Maximo ingresado por perfiles para las unidades con check box activo*/
+								"SELECT U.NOMBRE, M.PERIODO, M.VALMAX FROM \
+  									(SELECT CODUNIDAD, PERIODO, VALMAX, VALMIN FROM IDEAL.DRPT_MINMAXGENERACIONUNI_BAS WHERE CODCASO=? AND VERSION=?) M, \
+  									(SELECT NOMBRE, CODUNIDAD, CODNUMERO FROM IDEAL.DRPT_UNIDADGENERACION_BAS WHERE CODCASO=? AND VERSION=? AND ESTADO='ACTIVO') U, \
+									(SELECT TO_NUMBER(SUBINDICES) AS CODNUMERO FROM IDEAL.DRPT_TERMINOVALORES_BAS WHERE CODCASO=? AND VERSION=? AND CODTERMINO LIKE 'UGPRMXFG1'AND VALOR=1)  T, \
+  									(SELECT CODUNIDAD, PERIODO, VALOR  FROM IDEAL.DRPT_DISPONIBILIDADUNI_BAS WHERE CODCASO=? AND VERSION=?) D \
+								WHERE M.CODUNIDAD=U.CODUNIDAD AND U.CODNUMERO=T.CODNUMERO AND D.CODUNIDAD=U.CODUNIDAD AND D.PERIODO=M.PERIODO  AND M.VALMAX<D.VALOR") 
+								(CodCaso,Version,CodCaso,Version,CodCaso,Version,CodCaso,Version);								
+/*|____________________________________________________________________________________________________________________________________________________________________________________________________________|*/
+
+
+/*|=================================================================================INFORMACION GENERAL DE LAS SUBAREAS========================================================================================|*/
+Subarea 						from DBRead(DRP,				/*Conjunto de subareas activas en el sistema*/
+								"SELECT DISTINCT NOMBRE FROM IDEAL.DRPT_SUBAREA_BAS WHERE CODCASO=? AND VERSION=? AND ESTADO='ACTIVO'")
+								(CodCaso,Version);	
+
+Codigo_Subarea 					from DBRead(DRP,				/*Vector que entrega para cada subarea activa en el sistema el codigo de DRP*/
+								"SELECT NOMBRE, CODSUBAREA FROM IDEAL.DRPT_SUBAREA_BAS WHERE CODCASO=? AND VERSION=? AND ESTADO='ACTIVO'")
+								(CodCaso,Version);									
+
+CostoRacSubarea 				from DBRead(DRP,				/*Costo de racionamiento para cada subarea en cada periodo*/ 
+       							"SELECT S.NOMBRE AS SUBAREA, CS.PERIODO, CS.VALOR AS COSTORACIONAMIENTO FROM \
+  								(SELECT NOMBRE, CODSUBAREA FROM IDEAL.DRPT_SUBAREA_BAS WHERE CODCASO=? AND VERSION=? AND ESTADO='ACTIVO') S, \
+  								(SELECT CODSUBAREA, PERIODO, VALOR FROM IDEAL.DRPT_COSTORACMIENTOSPSAR_BAS WHERE CODCASO=? AND VERSION=?) CS \
+								WHERE S.CODSUBAREA=CS.CODSUBAREA AND CS.PERIODO<=?")
+       							(CodCaso,Version,CodCaso,Version,Pfin);	
+       													
+UnidadSubarea 					from DBRead(DRP,				/*Para cada unidad, entrega la subarea a la que pertenece*/
+       							"SELECT U.NOMBRE AS UNIDAD, S.NOMBRE AS SUBAREA  FROM IDEAL.DRPT_UNIDADGENERACION_BAS U, IDEAL.DRPT_SUBAREA_BAS S WHERE U.CODCASO=? AND S.CODCASO=U.CODCASO AND U.VERSION=? \
+       							AND S.VERSION=U.VERSION AND U.ESTADO='ACTIVO' AND S.ESTADO='ACTIVO' AND S.CODSUBAREA=U.CODSUBAREA")
+       							(CodCaso,Version);      
+
+DemandaSubarea 					from DBRead(DRP,				/*Demanda de cada subarea en cada periodo*/ 
+       							"SELECT S.NOMBRE, D.PERIODO, D.VALOR FROM IDEAL.DRPT_SUBAREA_BAS S, IDEAL.DRPT_DEMANDASUBAREA_BAS D WHERE S.CODCASO=? AND D.CODCASO=S.CODCASO AND S.VERSION=? AND D.VERSION=S.VERSION \
+       							AND S.ESTADO='ACTIVO' AND D.CODSUBAREA=S.CODSUBAREA AND D.PERIODO<=?")
+       							(CodCaso,Version,Pfin);             
+
+BanderaSubarea 					from DBRead(DRP,				/*Bandera que indica si aplica el limite de unico o limite por periodo para cada subarea.  1 es que aplica por periodo*/
+       							"SELECT S.NOMBRE, TO_NUMBER(E.VALOR) AS BANDERA FROM \
+  								(SELECT TO_NUMBER(SUBINDICES) AS CODNUMERO, VALOR FROM IDEAL.DRPT_TERMINOVALORES_BAS WHERE CODCASO=? AND VERSION=? AND CODTERMINO='SARIXGPRFG') E, \
+  								(SELECT CODNUMERO, NOMBRE FROM IDEAL.DRPT_SUBAREA_BAS WHERE CODCASO=? AND VERSION=? AND ESTADO='ACTIVO') S \
+								WHERE E.CODNUMERO=S.CODNUMERO")
+       							(CodCaso,Version,CodCaso,Version);
+       							
+ImpSubarea 						from DBRead(DRP,				/*Limite de importacion de cada subarea en cada periodo*/
+       							"SELECT S.NOMBRE AS SUBAREA, I.PERIODO, I.LIMIMPORT AS IMPORTACION FROM \
+  								(SELECT CODSUBAREA, PERIODO, LIMIMPORT FROM IDEAL.DRPT_EXPORTAIMPORTASAR_BAS WHERE CODCASO=? AND VERSION=?) I, \
+  								(SELECT NOMBRE, CODSUBAREA FROM IDEAL.DRPT_SUBAREA_BAS WHERE CODCASO=? AND VERSION=? AND ESTADO='ACTIVO') S \
+								WHERE I.CODSUBAREA=S.CODSUBAREA AND I.PERIODO<=?")
+       							(CodCaso,Version,CodCaso,Version,Pfin);	
+       							 
+ExpSubarea 						from DBRead(DRP,				/*Limite de exportacion de cada subarea en cada periodo*/
+       							"SELECT S.NOMBRE AS SUBAREA, I.PERIODO, I.LIMEXPORT AS EXPORTACION FROM \
+  								(SELECT CODSUBAREA, PERIODO, LIMEXPORT FROM IDEAL.DRPT_EXPORTAIMPORTASAR_BAS WHERE CODCASO=? AND VERSION=?) I, \
+  								(SELECT NOMBRE, CODSUBAREA FROM IDEAL.DRPT_SUBAREA_BAS WHERE CODCASO=? AND VERSION=? AND ESTADO='ACTIVO') S \
+								WHERE I.CODSUBAREA=S.CODSUBAREA AND I.PERIODO<=?")
+       							(CodCaso,Version,CodCaso,Version,Pfin);		
+       							
+RacMin_Subarea 					from DBRead(DRP, 				/*Racionamiento obligado para cada subarea en cada periodo*/
+       							"SELECT S.NOMBRE AS SUBAREA, R.PERIODO, R.VALOR AS RACIONAMIENTO FROM \
+  								(SELECT CODSUBAREA, PERIODO, VALOR FROM IDEAL.DRPT_RACIONAMIENTOPROGSAR_BAS WHERE CODCASO =? AND VERSION=? AND VALOR>0) R, \
+  								(SELECT NOMBRE, CODSUBAREA, CODNUMERO FROM IDEAL.DRPT_SUBAREA_BAS WHERE CODCASO=? AND VERSION=? AND ESTADO='ACTIVO') S, \
+  								(SELECT TO_NUMBER(SUBINDICES) AS CODNUMERO, VALOR FROM IDEAL.DRPT_TERMINOVALORES_BAS WHERE  CODCASO=? AND VERSION=? AND CODTERMINO='SARURPRMNXFG') T \
+								WHERE R.CODSUBAREA=S.CODSUBAREA AND S.CODNUMERO=T.CODNUMERO AND R.PERIODO<=?")
+       							(CodCaso,Version,CodCaso,Version,CodCaso,Version,Pfin);	 
+       							 
+ImpSub_Unico 					from DBRead(DRP,				/*Limite de imporacion unico para la subarea*/ 
+       							"SELECT NOMBRE, LIMIMPORT AS IMPORTACION FROM IDEAL.DRPT_SUBAREA_BAS WHERE CODCASO=? AND VERSION=? AND ESTADO='ACTIVO'")
+       							(CodCaso,Version);
+
+ExpSub_Unico 					from DBRead(DRP,				/*Limite de exportacion unico para la subarea*/ 
+       							"SELECT NOMBRE, LIMEXPORT AS EXPORTACION FROM IDEAL.DRPT_SUBAREA_BAS WHERE CODCASO=? AND VERSION=? AND ESTADO='ACTIVO'")
+       							(CodCaso,Version);       							
+/*|____________________________________________________________________________________________________________________________________________________________________________________________________________|*/       							
+
+
+/*|===================================================================================INFORMACION GENERAL DE LAS AREAS=========================================================================================|*/       							
+Areas 							from DBRead (DRP,				/*Conjunto de areas activas en el sistema*/
+       							"SELECT DISTINCT NOMBRE AS AREA FROM IDEAL.DRPT_AREA_BAS  WHERE CODCASO =? AND VERSION=? AND ESTADO='ACTIVO'")  
+       							(CodCaso,Version);
+       							
+Codigo_Area 					from DBRead (DRP,				/*Vector que entrega para cada area activa en el sistema el codigo de DRP*/
+       							"SELECT  NOMBRE, CODAREA AS AREA FROM IDEAL.DRPT_AREA_BAS  WHERE CODCASO =? AND VERSION=? AND ESTADO='ACTIVO'")  
+       							(CodCaso,Version);       							
+        
+SubareaArea 					from DBRead(DRP,				/*Para cada subarea, entrega el area a la que pertenece*/
+       							"SELECT S.NOMBRE AS SUBAREA, A.NOMBRE AS AREA FROM \
+  								(SELECT CODSUBAREA, CODAREA FROM IDEAL.DRPT_RAREASUBAREA_BAS WHERE CODCASO =? AND VERSION=?) SA, \
+  								(SELECT NOMBRE, CODAREA FROM IDEAL.DRPT_AREA_BAS  WHERE CODCASO =? AND VERSION=? AND ESTADO='ACTIVO') A, \
+  								(SELECT NOMBRE, CODSUBAREA FROM IDEAL.DRPT_SUBAREA_BAS  WHERE CODCASO =? AND VERSION=? AND ESTADO='ACTIVO') S \
+								WHERE SA.CODAREA=A.CODAREA AND SA.CODSUBAREA=S.CODSUBAREA")
+       							(CodCaso,Version,CodCaso,Version,CodCaso,Version);
+
+DemandaArea 					from DBRead (DRP,				/*Demanda de cada area en cada periodo*/
+       							"SELECT A.NOMBRE AS AREA, D.PERIODO, SUM(D.VALOR) AS DEMANDA FROM \
+  								(SELECT CODSUBAREA, CODAREA FROM IDEAL.DRPT_RAREASUBAREA_BAS WHERE CODCASO =? AND VERSION=?) SA, \
+  								(SELECT NOMBRE, CODAREA FROM IDEAL.DRPT_AREA_BAS  WHERE CODCASO =? AND VERSION=? AND ESTADO='ACTIVO') A, \
+  								(SELECT CODSUBAREA, PERIODO, VALOR FROM IDEAL.DRPT_DEMANDASUBAREA_BAS WHERE CODCASO =? AND VERSION=?) D \
+								WHERE SA.CODAREA=A.CODAREA AND D.CODSUBAREA=SA.CODSUBAREA AND D.PERIODO<=? GROUP BY A.NOMBRE, D.PERIODO")
+       							(CodCaso,Version,CodCaso,Version,CodCaso,Version,Pfin);        
+
+BanderaArea						from DBRead (DRP,				/*Bandera que indica si aplica el limite de unico o limite por periodo para cada Area.  1 es que aplica por periodo*/
+       							"SELECT A.NOMBRE AS AREA, TO_NUMBER(T.VALOR) AS BANDERA FROM \
+  								(SELECT TO_NUMBER(SUBINDICES) AS CODNUMERO, VALOR FROM IDEAL.DRPT_TERMINOVALORES_BAS WHERE CODCASO=? AND VERSION = ? AND CODTERMINO='ARIXGPRFG') T, \
+  								(SELECT NOMBRE, CODNUMERO FROM IDEAL.DRPT_AREA_BAS  WHERE CODCASO =? AND VERSION=? AND ESTADO='ACTIVO') A \
+								WHERE T.CODNUMERO=A.CODNUMERO")  
+       							(CodCaso,Version,CodCaso,Version); 
+       
+ImpArea 						from DBRead (DRP,				/*Limite de importacion de cada Area en cada periodo*/
+       							"SELECT A.NOMBRE AS AREA, I.PERIODO, I.LIMIMPORT AS IMPORTACION FROM \
+  								(SELECT CODAREA, PERIODO, LIMIMPORT FROM IDEAL.DRPT_EXPORTAIMPORTAAR_BAS WHERE CODCASO=? AND VERSION=?) I, \
+  								(SELECT NOMBRE, CODAREA FROM IDEAL.DRPT_AREA_BAS  WHERE CODCASO =? AND VERSION=? AND ESTADO='ACTIVO') A \
+								WHERE I.CODAREA=A.CODAREA AND I.PERIODO<=?")  
+       							(CodCaso,Version,CodCaso,Version,Pfin);
+       
+ExpArea 						from DBRead (DRP,				/*Limite de exportacion de cada Area en cada periodo*/
+       							"SELECT A.NOMBRE AS AREA, I.PERIODO, I.LIMEXPORT AS EXPORTACION FROM \
+  								(SELECT CODAREA, PERIODO, LIMEXPORT FROM IDEAL.DRPT_EXPORTAIMPORTAAR_BAS WHERE CODCASO=? AND VERSION=?) I, \
+  								(SELECT NOMBRE, CODAREA FROM IDEAL.DRPT_AREA_BAS  WHERE CODCASO =? AND VERSION=? AND ESTADO='ACTIVO') A \
+								WHERE I.CODAREA=A.CODAREA AND I.PERIODO<=?")  
+       							(CodCaso,Version,CodCaso,Version,Pfin);
+       
+ImpArea_Unico 					from DBRead(DRP,				/*Limite de imporacion unico para el area*/						
+       							"SELECT NOMBRE AS AREA, LIMIMPORT AS IMPORTACION FROM IDEAL.DRPT_AREA_BAS  WHERE CODCASO =? AND VERSION=? AND ESTADO='ACTIVO'")
+       							(CodCaso,Version);     
+       							  							 													
+ExpArea_Unico 					from DBRead(DRP,				/*Limite de exportacion unico para el area*/						
+       							"SELECT NOMBRE AS AREA, LIMEXPORT AS EXPORTACION FROM IDEAL.DRPT_AREA_BAS  WHERE CODCASO =? AND VERSION=? AND ESTADO='ACTIVO'")
+       							(CodCaso,Version);           							  							 													
+/*|____________________________________________________________________________________________________________________________________________________________________________________________________________|*/
+
+
+/*|===================================================================================INFORMACION DE CONDICIONES INICIALES===================================================================================|*/
+
+GenRecT_t_1 					from DBRead (DRP,			/*Generacion en el periodo t-1 para los recursos termicos*/
+								"SELECT R.NOMBRE, GPINI1 FROM \
+								 (SELECT CODRECURSO, GPINI1 FROM IDEAL.DRPT_CONDICINIXUNI_BAS WHERE CODCASO=? AND VERSION=? AND PERIODO=? AND TIPOCOND='M') CI, \
+								 (SELECT NOMBRE, CODRECURSO FROM IDEAL.DRPT_RECURSOGENERACION_BAS WHERE ESTADO='ACTIVO' AND CODCASO=? AND VERSION=? AND DESPACHOCENTRAL='S' AND TIPO LIKE 'T%' AND TIPO<>'TI') R \
+								WHERE R.CODRECURSO=CI.CODRECURSO")(CodCaso,Version,Pini,CodCaso,Version);  
+								
+GenRecT_t_2 					from DBRead (DRP,			/*Generacionn en el periodo t-2 para los recursos termicos*/
+								"SELECT R.NOMBRE, GPINI2 FROM \
+								 (SELECT CODRECURSO, GPINI2 FROM IDEAL.DRPT_CONDICINIXUNI_BAS WHERE CODCASO=? AND VERSION=?  AND PERIODO=? AND TIPOCOND='M') CI, \
+								 (SELECT NOMBRE, CODRECURSO FROM IDEAL.DRPT_RECURSOGENERACION_BAS WHERE ESTADO='ACTIVO' AND CODCASO=? AND VERSION=? AND DESPACHOCENTRAL='S' AND TIPO LIKE 'T%' AND TIPO<>'TI') R \
+								WHERE R.CODRECURSO=CI.CODRECURSO")(CodCaso,Version,Pini,CodCaso,Version);  
+
+Conf_t_1 						from DBRead (DRP,			/*Configuracion en el periodo t-1 para los recursos termicos*/
+								"SELECT R.NOMBRE, CONFPINI1 FROM \
+								 (SELECT CODRECURSO, CONFPINI1 FROM IDEAL.DRPT_CONDICINIXUNI_BAS WHERE CODCASO=? AND VERSION=?  AND PERIODO=? AND TIPOCOND='M') CI, \
+								 (SELECT NOMBRE, CODRECURSO FROM IDEAL.DRPT_RECURSOGENERACION_BAS WHERE ESTADO='ACTIVO' AND CODCASO=? AND VERSION=? AND DESPACHOCENTRAL='S' AND TIPO LIKE 'T%' AND TIPO<>'TI') R \
+								WHERE R.CODRECURSO=CI.CODRECURSO")(CodCaso,Version,Pini,CodCaso,Version);    
+								
+Conf_Salida						from DBRead (DRP,			/*Configuracion con la cual se realizo la salida del recurso en la condicion inicial*/
+								"SELECT R.NOMBRE, CONFSALIDA FROM \
+								 (SELECT CODRECURSO, CONFSALIDA FROM IDEAL.DRPT_CONDICINIXUNI_BAS WHERE CODCASO=? AND VERSION=?  AND PERIODO=? AND TIPOCOND='M') CI, \
+								 (SELECT NOMBRE, CODRECURSO FROM IDEAL.DRPT_RECURSOGENERACION_BAS WHERE ESTADO='ACTIVO' AND CODCASO=? AND VERSION=? AND DESPACHOCENTRAL='S' AND TIPO LIKE 'T%' AND TIPO<>'TI') R \
+								WHERE R.CODRECURSO=CI.CODRECURSO")(CodCaso,Version,Pini,CodCaso,Version); 
+																
+Conf_Entrada					from DBRead (DRP,			/*Configuracion con la cual se realizo la entrada del recurso en la condicion inicial*/
+								"SELECT R.NOMBRE, CONFENTRADA FROM \
+								 (SELECT CODRECURSO, CONFENTRADA FROM IDEAL.DRPT_CONDICINIXUNI_BAS WHERE CODCASO=? AND VERSION=?  AND PERIODO=? AND TIPOCOND='M') CI, \
+								 (SELECT NOMBRE, CODRECURSO FROM IDEAL.DRPT_RECURSOGENERACION_BAS WHERE ESTADO='ACTIVO' AND CODCASO=? AND VERSION=? AND DESPACHOCENTRAL='S' AND TIPO LIKE 'T%' AND TIPO<>'TI') R \
+								WHERE R.CODRECURSO=CI.CODRECURSO")(CodCaso,Version,Pini,CodCaso,Version);      
+
+nEnt_ini						from DBRead (DRP,			/*Bloques de entrada que lleva el recurso en la condicion inicial*/
+								"SELECT R.NOMBRE, NENTINI FROM \
+								 (SELECT CODRECURSO, CASE WHEN ESTADOPINI1 IN ('C','T','F') THEN BLOQUESPINI1 ELSE 0 END AS NENTINI  FROM IDEAL.DRPT_CONDICINIXUNI_BAS WHERE CODCASO=? AND VERSION=?  AND PERIODO=? AND TIPOCOND='M') CI, \
+								 (SELECT NOMBRE, CODRECURSO FROM IDEAL.DRPT_RECURSOGENERACION_BAS WHERE ESTADO='ACTIVO' AND CODCASO=? AND VERSION=? AND DESPACHOCENTRAL='S' AND TIPO LIKE 'T%' AND TIPO<>'TI') R \
+								WHERE R.CODRECURSO=CI.CODRECURSO")(CodCaso,Version,Pini,CodCaso,Version);    
+
+nEnt_ini_Cal					from DBRead (DRP,			/*Bloques de entrada caliente que lleva el recurso en la condicion inicial*/
+								"SELECT R.NOMBRE, NENTINICAL FROM \
+								 (SELECT CODRECURSO, CASE WHEN ESTADOPINI1 IN ('C') THEN BLOQUESPINI1 ELSE 0 END AS NENTINICAL  FROM IDEAL.DRPT_CONDICINIXUNI_BAS WHERE CODCASO=? AND VERSION=?  AND PERIODO=? AND TIPOCOND='M') CI, \
+								 (SELECT NOMBRE, CODRECURSO FROM IDEAL.DRPT_RECURSOGENERACION_BAS WHERE ESTADO='ACTIVO' AND CODCASO=? AND VERSION=? AND DESPACHOCENTRAL='S' AND TIPO LIKE 'T%' AND TIPO<>'TI') R \
+								WHERE R.CODRECURSO=CI.CODRECURSO")(CodCaso,Version,Pini,CodCaso,Version);   
+
+nEnt_ini_Tib					from DBRead (DRP,			/*Bloques de entrada tibio que lleva el recurso en la condicion inicial*/
+								"SELECT R.NOMBRE, NENTINITIB FROM \
+								 (SELECT CODRECURSO, CASE WHEN ESTADOPINI1 IN ('T') THEN BLOQUESPINI1 ELSE 0 END AS NENTINITIB  FROM IDEAL.DRPT_CONDICINIXUNI_BAS WHERE CODCASO=? AND VERSION=?  AND PERIODO=? AND TIPOCOND='M') CI, \
+								 (SELECT NOMBRE, CODRECURSO FROM IDEAL.DRPT_RECURSOGENERACION_BAS WHERE ESTADO='ACTIVO' AND CODCASO=? AND VERSION=? AND DESPACHOCENTRAL='S' AND TIPO LIKE 'T%' AND TIPO<>'TI') R \
+								WHERE R.CODRECURSO=CI.CODRECURSO")(CodCaso,Version,Pini,CodCaso,Version);   
+
+nEnt_ini_Fri					from DBRead (DRP,			/*Bloques de entrada tibio que lleva el recurso en la condicion inicial*/
+								"SELECT R.NOMBRE, NENTINIFRI FROM \
+								 (SELECT CODRECURSO, CASE WHEN ESTADOPINI1 IN ('F') THEN BLOQUESPINI1 ELSE 0 END AS NENTINIFRI  FROM IDEAL.DRPT_CONDICINIXUNI_BAS WHERE CODCASO=? AND VERSION=?  AND PERIODO=? AND TIPOCOND='M') CI, \
+								 (SELECT NOMBRE, CODRECURSO FROM IDEAL.DRPT_RECURSOGENERACION_BAS WHERE ESTADO='ACTIVO' AND CODCASO=? AND VERSION=? AND DESPACHOCENTRAL='S' AND TIPO LIKE 'T%' AND TIPO<>'TI') R \
+								WHERE R.CODRECURSO=CI.CODRECURSO")(CodCaso,Version,Pini,CodCaso,Version);   
+
+nSal_ini						from DBRead (DRP,			/*Bloques de salida que lleva el recurso en la condicion inicial*/
+								"SELECT R.NOMBRE, NSALINI FROM \
+								 (SELECT CODRECURSO, CASE WHEN ESTADOPINI1 IN ('DN','DNE') THEN BLOQUESPINI1 ELSE 0 END AS NSALINI  FROM IDEAL.DRPT_CONDICINIXUNI_BAS WHERE CODCASO=? AND VERSION=?  AND PERIODO=? AND TIPOCOND='M') CI, \
+								 (SELECT NOMBRE, CODRECURSO FROM IDEAL.DRPT_RECURSOGENERACION_BAS WHERE ESTADO='ACTIVO' AND CODCASO=? AND VERSION=? AND DESPACHOCENTRAL='S' AND TIPO LIKE 'T%' AND TIPO<>'TI') R \
+								WHERE R.CODRECURSO=CI.CODRECURSO")(CodCaso,Version,Pini,CodCaso,Version);    
+
+nSal_ini_Nor					from DBRead (DRP,			/*Bloques de salida normal que lleva el recurso en la condicion inicial*/
+								"SELECT R.NOMBRE, NSALININOR FROM \
+								 (SELECT CODRECURSO, CASE WHEN ESTADOPINI1 IN ('DN') THEN BLOQUESPINI1 ELSE 0 END AS NSALININOR  FROM IDEAL.DRPT_CONDICINIXUNI_BAS WHERE CODCASO=? AND VERSION=?  AND PERIODO=? AND TIPOCOND='M') CI, \
+								 (SELECT NOMBRE, CODRECURSO FROM IDEAL.DRPT_RECURSOGENERACION_BAS WHERE ESTADO='ACTIVO' AND CODCASO=? AND VERSION=? AND DESPACHOCENTRAL='S' AND TIPO LIKE 'T%' AND TIPO<>'TI') R \
+								WHERE R.CODRECURSO=CI.CODRECURSO")(CodCaso,Version,Pini,CodCaso,Version);    
+
+nSal_ini_Esp					from DBRead (DRP,			/*Bloques de salida especial que lleva el recurso en la condicion inicial*/
+								"SELECT R.NOMBRE, NSALINIESP FROM \
+								 (SELECT CODRECURSO, CASE WHEN ESTADOPINI1 IN ('DNE') THEN BLOQUESPINI1 ELSE 0 END AS NSALINIESP  FROM IDEAL.DRPT_CONDICINIXUNI_BAS WHERE CODCASO=? AND VERSION=?  AND PERIODO=? AND TIPOCOND='M') CI, \
+								 (SELECT NOMBRE, CODRECURSO FROM IDEAL.DRPT_RECURSOGENERACION_BAS WHERE ESTADO='ACTIVO' AND CODCASO=? AND VERSION=? AND DESPACHOCENTRAL='S' AND TIPO LIKE 'T%' AND TIPO<>'TI') R \
+								WHERE R.CODRECURSO=CI.CODRECURSO")(CodCaso,Version,Pini,CodCaso,Version);    
+
+Tiempo_en_Linea					from DBRead (DRP,			/*Tiempo que lleva el recurso termico en linea en la condicion inicial*/
+								"SELECT R.NOMBRE, TL FROM \
+								 (SELECT CODRECURSO, TL FROM IDEAL.DRPT_CONDICINIXUNI_BAS WHERE CODCASO=? AND VERSION=?  AND PERIODO=? AND TIPOCOND='M') CI, \
+								 (SELECT NOMBRE, CODRECURSO FROM IDEAL.DRPT_RECURSOGENERACION_BAS WHERE ESTADO='ACTIVO' AND CODCASO=? AND VERSION=? AND DESPACHOCENTRAL='S' AND TIPO LIKE 'T%' AND TIPO<>'TI') R \
+								WHERE R.CODRECURSO=CI.CODRECURSO")(CodCaso,Version,Pini,CodCaso,Version);  
+
+Tiempo_fuera_Linea				from DBRead(DRP,			/*Tiempo que lleva el recurso termico fuera de linea en la condicion inicial*/
+								"SELECT R.NOMBRE, TFL FROM \
+								 (SELECT CODRECURSO, TFL FROM IDEAL.DRPT_CONDICINIXUNI_BAS WHERE CODCASO=? AND VERSION=?  AND PERIODO=? AND TIPOCOND='M') CI, \
+								 (SELECT NOMBRE, CODRECURSO FROM IDEAL.DRPT_RECURSOGENERACION_BAS WHERE ESTADO='ACTIVO' AND CODCASO=? AND VERSION=? AND DESPACHOCENTRAL='S' AND TIPO LIKE 'T%' AND TIPO<>'TI') R \
+								WHERE R.CODRECURSO=CI.CODRECURSO")(CodCaso,Version,Pini,CodCaso,Version);  
+
+nArr_ini						from DBRead (DRP,			/*Numero de arranques que lleva el recurso en la condicion inicial para el dia de analisis*/
+								"SELECT R.NOMBRE, NARRANQUESPINI1 FROM \
+								 (SELECT CODRECURSO, NARRANQUESPINI1 FROM IDEAL.DRPT_CONDICINIXUNI_BAS WHERE CODCASO=? AND VERSION=?  AND PERIODO=? AND TIPOCOND='M') CI, \
+								 (SELECT NOMBRE, CODRECURSO FROM IDEAL.DRPT_RECURSOGENERACION_BAS WHERE ESTADO='ACTIVO' AND CODCASO=? AND VERSION=? AND DESPACHOCENTRAL='S' AND TIPO LIKE 'T%' AND TIPO<>'TI') R \
+								WHERE R.CODRECURSO=CI.CODRECURSO")(CodCaso,Version,Pini,CodCaso,Version);  
+
+Publicacion						from DBRead (DRP,			/*Tiempo de publicacion de referencia para el tiempo de aviso*/
+								"SELECT R.NOMBRE, TAPUBLICAR FROM \
+								 (SELECT CODRECURSO, TAPUBLICAR FROM IDEAL.DRPT_CONDICINIXUNI_BAS WHERE CODCASO=? AND VERSION=?  AND PERIODO=? AND TIPOCOND='M') CI, \
+								 (SELECT NOMBRE, CODRECURSO FROM IDEAL.DRPT_RECURSOGENERACION_BAS WHERE ESTADO='ACTIVO' AND CODCASO=? AND VERSION=? AND DESPACHOCENTRAL='S' AND TIPO LIKE 'T%' AND TIPO<>'TI') R \
+								WHERE R.CODRECURSO=CI.CODRECURSO")(CodCaso,Version,Pini,CodCaso,Version);  
+
+TDispPini_1     				from DBRead (DRP,			/*Numero de periodos que lleva el recurso disponible en la condicion inicial (Hasta el periodo Pini-1)*/
+								"SELECT R.NOMBRE, TDISPPINI1 FROM \
+								 (SELECT CODRECURSO, TDISPPINI1 FROM IDEAL.DRPT_CONDICINIXUNI_BAS WHERE CODCASO=? AND VERSION=?  AND PERIODO=? AND TIPOCOND='M') CI, \
+								 (SELECT NOMBRE, CODRECURSO FROM IDEAL.DRPT_RECURSOGENERACION_BAS WHERE ESTADO='ACTIVO' AND CODCASO=? AND VERSION=? AND DESPACHOCENTRAL='S' AND TIPO LIKE 'T%' AND TIPO<>'TI') R \
+								WHERE R.CODRECURSO=CI.CODRECURSO")(CodCaso,Version,Pini,CodCaso,Version);  
+
+Disp_t_1 						from DBRead (DRP,			/*Disponibilidad en el periodo t-1 para los recursos termicos*/
+								"SELECT R.NOMBRE, DISPPINI1 FROM \
+								 (SELECT CODRECURSO, DISPPINI1 FROM IDEAL.DRPT_CONDICINIXUNI_BAS WHERE CODCASO=? AND VERSION=?  AND PERIODO=? AND TIPOCOND='M') CI, \
+								 (SELECT NOMBRE, CODRECURSO FROM IDEAL.DRPT_RECURSOGENERACION_BAS WHERE ESTADO='ACTIVO' AND CODCASO=? AND VERSION=? AND DESPACHOCENTRAL='S' AND TIPO LIKE 'T%' AND TIPO<>'TI') R \
+								WHERE R.CODRECURSO=CI.CODRECURSO")(CodCaso,Version,Pini,CodCaso,Version);  
+
+TCE_P	 						from DBRead (DRP,			/*Tiempo de carga estable que tiene pendiente el recurso termico*/
+								"SELECT R.NOMBRE, TCEPENDIENTE FROM \
+								 (SELECT CODRECURSO, TCEPENDIENTE FROM IDEAL.DRPT_CONDICINIXUNI_BAS WHERE CODCASO=? AND VERSION=?  AND PERIODO=? AND TIPOCOND='M') CI, \
+								 (SELECT NOMBRE, CODRECURSO FROM IDEAL.DRPT_RECURSOGENERACION_BAS WHERE ESTADO='ACTIVO' AND CODCASO=? AND VERSION=? AND DESPACHOCENTRAL='S' AND TIPO LIKE 'T%' AND TIPO<>'TI') R \
+								WHERE R.CODRECURSO=CI.CODRECURSO")(CodCaso,Version,Pini,CodCaso,Version);  
+/*|__________________________________________________________________________________________________________________________________________________________________________________________________________|*/								
+
+           	
+
+/*|================================================================================INFORMACION PARA CONTROL DE RESTRICCIONES=================================================================================|*/
+c_Mod1_Ent						from DBRead (DRP,			/*Control para la restriccion de Modelo1 de entrada.  PARA TEBSA SE ASUME SIEMPRE DESHABILITADO EL MODELO 1 DE ENTRADA*/
+								"SELECT R.NOMBRE, CASE WHEN C.ESTADO='S' AND (R.NOMBRE NOT LIKE 'TEBSA') THEN 1 ELSE 0 END AS VALOR FROM \
+									(SELECT RECURSO, ESTADO FROM IDEAL.DRPT_CONTROLRESTRICCION_BAS WHERE RESTRICCION='Modelo 1 Entrada' AND CODCASO=? AND VERSION=?) C, \
+									(SELECT NOMBRE, CODRECURSO FROM IDEAL.DRPT_RECURSOGENERACION_BAS WHERE ESTADO='ACTIVO' AND CODCASO=? AND VERSION=? \
+									AND DESPACHOCENTRAL='S' AND TIPO LIKE 'T%' AND TIPO<>'TI') R \
+								WHERE R.CODRECURSO=C.RECURSO")(CodCaso,Version,CodCaso,Version); 
+
+c_Mod1_Sal						from DBRead (DRP,			/*Control para la restriccion de Modelo1 de salida.  PARA TEBSA SE ASUME SIEMPRE DESHABILITADO EL MODELO 1 DE SALIDA*/
+								"SELECT R.NOMBRE, CASE WHEN C.ESTADO='S' AND (R.NOMBRE NOT LIKE 'TEBSA') THEN 1 ELSE 0 END AS VALOR FROM \
+									(SELECT RECURSO, ESTADO FROM IDEAL.DRPT_CONTROLRESTRICCION_BAS WHERE RESTRICCION='Modelo 1 Salida' AND CODCASO=? AND VERSION=?) C, \
+									(SELECT NOMBRE, CODRECURSO FROM IDEAL.DRPT_RECURSOGENERACION_BAS WHERE ESTADO='ACTIVO' AND CODCASO=? AND VERSION=? \
+									AND DESPACHOCENTRAL='S' AND TIPO LIKE 'T%' AND TIPO<>'TI') R \
+								WHERE R.CODRECURSO=C.RECURSO")(CodCaso,Version,CodCaso,Version); 								
+
+RampaObl						from DBRead(DRP,				/*Valor de Rampa que se quiere aplicar cuando el modelo 1 esta inactivo*/
+								"SELECT R.NOMBRE, Ra.PERIODO, SUM(Ra.VALOR) AS RAMPA FROM \
+  								(SELECT CODRECURSO, NOMBRE FROM IDEAL.DRPT_RECURSOGENERACION_BAS WHERE CODCASO=? AND VERSION=? AND ESTADO='ACTIVO' AND TIPO IN ('T','TR')) R, \
+  								(SELECT CODUNIDAD, CODRECURSO FROM IDEAL.DRPT_UNIDADGENERACION_BAS WHERE CODCASO=? AND VERSION=? AND ESTADO='ACTIVO') U, \
+  								(SELECT CODUNIDAD, PERIODO, VALOR  FROM IDEAL.DRPT_RAMPASUNIDAD_BAS WHERE CODCASO=? AND VERSION=?) Ra \
+								WHERE R.CODRECURSO=U.CODRECURSO AND U.CODUNIDAD=Ra.CODUNIDAD GROUP BY R.NOMBRE, Ra.PERIODO")
+								(CodCaso,Version,CodCaso,Version,CodCaso,Version); 				
+								
+c_CE							from DBRead (DRP,			/*Control para la restriccion de carga estable*/
+								"SELECT R.NOMBRE, C.PERIODO,CASE WHEN C.ESTADO='S' THEN 1 ELSE 0 END AS VALOR FROM \
+									(SELECT RECURSO,PERIODO, ESTADO FROM IDEAL.DRPT_CONTROLRESTRICCION_BAS WHERE RESTRICCION='Carga Estable' AND CODCASO=? AND VERSION=?) C, \
+									(SELECT NOMBRE, CODRECURSO FROM IDEAL.DRPT_RECURSOGENERACION_BAS WHERE ESTADO='ACTIVO' AND CODCASO=? AND VERSION=? \
+									AND DESPACHOCENTRAL='S' AND TIPO LIKE 'T%' AND TIPO<>'TI') R \
+								WHERE R.CODRECURSO=C.RECURSO")(CodCaso,Version,CodCaso,Version); 	
+								
+c_TL							from DBRead (DRP,			/*Control para la restriccion de tiempo en linea*/
+								"SELECT R.NOMBRE, CASE WHEN C.ESTADO='S' THEN 1 ELSE 0 END AS VALOR FROM \
+									(SELECT RECURSO, ESTADO FROM IDEAL.DRPT_CONTROLRESTRICCION_BAS WHERE RESTRICCION='Tiempo en Linea' AND CODCASO=? AND VERSION=?) C, \
+									(SELECT NOMBRE, CODRECURSO FROM IDEAL.DRPT_RECURSOGENERACION_BAS WHERE ESTADO='ACTIVO' AND CODCASO=? AND VERSION=? \
+									AND DESPACHOCENTRAL='S' AND TIPO LIKE 'T%' AND TIPO<>'TI') R \
+								WHERE R.CODRECURSO=C.RECURSO")(CodCaso,Version,CodCaso,Version); 
+								
+c_TFL							from DBRead (DRP,			/*Control para la restriccion de tiempo fuera de linea*/
+								"SELECT R.NOMBRE, CASE WHEN C.ESTADO='S' THEN 1 ELSE 0 END AS VALOR FROM \
+									(SELECT RECURSO, ESTADO FROM IDEAL.DRPT_CONTROLRESTRICCION_BAS WHERE RESTRICCION='T Fuera de Linea' AND CODCASO=? AND VERSION=?) C, \
+									(SELECT NOMBRE, CODRECURSO FROM IDEAL.DRPT_RECURSOGENERACION_BAS WHERE ESTADO='ACTIVO' AND CODCASO=? AND VERSION=? \
+									AND DESPACHOCENTRAL='S' AND TIPO LIKE 'T%' AND TIPO<>'TI') R \
+								WHERE R.CODRECURSO=C.RECURSO")(CodCaso,Version,CodCaso,Version); 
+								
+c_TC							from DBRead (DRP,			/*Control para la restriccion de tiempo de calentamiento*/
+								"SELECT R.NOMBRE, CASE WHEN C.ESTADO='S' THEN 1 ELSE 0 END AS VALOR FROM \
+									(SELECT RECURSO, ESTADO FROM IDEAL.DRPT_CONTROLRESTRICCION_BAS WHERE RESTRICCION='T Calentamiento' AND CODCASO=? AND VERSION=?) C, \
+									(SELECT NOMBRE, CODRECURSO FROM IDEAL.DRPT_RECURSOGENERACION_BAS WHERE ESTADO='ACTIVO' AND CODCASO=? AND VERSION=? \
+									AND DESPACHOCENTRAL='S' AND TIPO LIKE 'T%' AND TIPO<>'TI') R \
+								WHERE R.CODRECURSO=C.RECURSO")(CodCaso,Version,CodCaso,Version); 	
+								
+c_TA							from DBRead (DRP,			/*Control para la restriccion de tiempo de aviso*/
+								"SELECT R.NOMBRE, CASE WHEN C.ESTADO='S' THEN 1 ELSE 0 END AS VALOR FROM \
+									(SELECT RECURSO, ESTADO FROM IDEAL.DRPT_CONTROLRESTRICCION_BAS WHERE RESTRICCION='Tiempo de Aviso' AND CODCASO=? AND VERSION=?) C, \
+									(SELECT NOMBRE, CODRECURSO FROM IDEAL.DRPT_RECURSOGENERACION_BAS WHERE ESTADO='ACTIVO' AND CODCASO=? AND VERSION=? \
+									AND DESPACHOCENTRAL='S' AND TIPO LIKE 'T%' AND TIPO<>'TI') R \
+								WHERE R.CODRECURSO=C.RECURSO")(CodCaso,Version,CodCaso,Version); 	
+								
+c_NAR							from DBRead (DRP,			/*Control para la restriccion de numero de arranques*/
+								"SELECT R.NOMBRE, CASE WHEN C.ESTADO='S' THEN 1 ELSE 0 END AS VALOR FROM \
+									(SELECT RECURSO, ESTADO FROM IDEAL.DRPT_CONTROLRESTRICCION_BAS WHERE RESTRICCION='N Arranques' AND CODCASO=? AND VERSION=?) C, \
+									(SELECT NOMBRE, CODRECURSO FROM IDEAL.DRPT_RECURSOGENERACION_BAS WHERE ESTADO='ACTIVO' AND CODCASO=? AND VERSION=? \
+									AND DESPACHOCENTRAL='S' AND TIPO LIKE 'T%' AND TIPO<>'TI') R \
+								WHERE R.CODRECURSO=C.RECURSO")(CodCaso,Version,CodCaso,Version); 	
+																
+c_Mod23							from DBRead (DRP,			/*Control para la restriccion de modelo 2 o 3 segun aplique, esta implica tambien el control de los UR' y DR'*/
+								"SELECT R.NOMBRE, C.PERIODO,CASE WHEN C.ESTADO='S' THEN 1 ELSE 0 END AS VALOR FROM \
+									(SELECT RECURSO,PERIODO, ESTADO FROM IDEAL.DRPT_CONTROLRESTRICCION_BAS WHERE RESTRICCION='Modelo 2 o 3' AND CODCASO=? AND VERSION=?) C, \
+									(SELECT NOMBRE, CODRECURSO FROM IDEAL.DRPT_RECURSOGENERACION_BAS WHERE ESTADO='ACTIVO' AND CODCASO=? AND VERSION=? \
+									AND DESPACHOCENTRAL='S' AND TIPO LIKE 'T%' AND TIPO<>'TI') R \
+								WHERE R.CODRECURSO=C.RECURSO")(CodCaso,Version,CodCaso,Version); 	
+
+c_Mod2H							from DBRead (DRP,			/*Control para la restriccion de modelo 2 para recursos hidraulicos*/
+								"SELECT R.NOMBRE, C.PERIODO,CASE WHEN C.ESTADO='S' THEN 1 ELSE 0 END AS VALOR FROM \
+									(SELECT RECURSO,PERIODO, ESTADO FROM IDEAL.DRPT_CONTROLRESTRICCION_BAS WHERE RESTRICCION='Modelo 2 o 3' AND CODCASO=? AND VERSION=?) C, \
+									(SELECT NOMBRE, CODRECURSO FROM IDEAL.DRPT_RECURSOGENERACION_BAS WHERE ESTADO='ACTIVO' AND CODCASO=? AND VERSION=? \
+									AND DESPACHOCENTRAL='S' AND TIPO LIKE 'H%') R \
+								WHERE R.CODRECURSO=C.RECURSO")(CodCaso,Version,CodCaso,Version); 					
+
+c_NO_Z_S						from DBRead (DRP,			/*Control para relajar las zonas de seguridad, lo ideal es que este en "0"*/
+								"SELECT CASE WHEN ESTADO='S' THEN 1 ELSE 0 END AS VALOR FROM IDEAL.DRPT_CONTROLRESTRICCION_BAS WHERE RESTRICCION='Ignorar ZONAS' \
+								AND CODCASO=? AND VERSION=?")(CodCaso,Version);
+/*|__________________________________________________________________________________________________________________________________________________________________________________________________________|*/
+           						
+           						
+/*|================================================================================INFORMACION RECURSOS CON ZONAS INFACTIBLES================================================================================|*/
+RecursosInfactibles 			from DBRead(DRP,				/*Conjunto de recursos que tienen zonas infactibles*/
+            					"SELECT DISTINCT(NOMBRE) FROM IDEAL.DRPV_RECURSOSFACTIBLES_OPL WHERE CODCASO =? AND VERSION = ?")
+								(CodCaso,Version); 
+								
+BloquesFactibles 				from DBRead(DRP,				/*Identificacion de cada bloque factible concatenando el Recurso y el segmento*/
+            					"SELECT CONCAT(NOMBRE,SEGMENTO) FROM IDEAL.DRPV_RECURSOSFACTIBLES_OPL WHERE CODCASO =? AND VERSION = ?")
+            					(CodCaso,Version);  
+            					
+ValoresFactibles 				from DBRead(DRP,				/*Detalle de los bloques factibles identificando el valor minimo, el maximo y la combinacion Recurso_Segmento correspondiente*/
+            					"SELECT NOMBRE, CONCAT(NOMBRE,SEGMENTO), minimo, maximo FROM IDEAL.DRPV_RECURSOSFACTIBLES_OPL WHERE CODCASO = ? AND VERSION = ?")
+            					(CodCaso,Version);  	
+
+RecInfact_Esp            		from DBRead (Faltante,			/*Conjunto de recursos termicos con zonas infactibles especiales*/
+            					"SELECT NOMBRE FROM OPL_ZONAINFACTIBLE_DAT");							
+		   													
+ZonaInfact_Esp					from DBRead (Faltante,			/*Detalle de los valores minimos y maximos los cuales se utilizan para definir las zonas FactibleMin-Infactible-FactibleMax*/
+								"SELECT NOMBRE, VMIN, VMAX FROM OPL_ZONAINFACTIBLE_DAT"); 											
+/*|__________________________________________________________________________________________________________________________________________________________________________________________________________|*/
+
+
+/*|=============================================================================================INFORMACION DEL AGC==========================================================================================|*/
+RecursoAGC 						from DBRead (DRP,				/*Recursos habilitados para hacer AGC*/
+            					"SELECT DISTINCT R.NOMBRE FROM IDEAL.DRPT_RECURSOGENERACION_BAS R, IDEAL.DRPT_AGCASIGNADOXRECURSO_BAS AGC WHERE AGC.CODCASO=? AND R.CODCASO=AGC.CODCASO AND AGC.VERSION=? \
+            					AND R.VERSION=AGC.VERSION AND R.CODRECURSO=AGC.CODRECURSO AND R.ESTADO='ACTIVO' AND AGC.PERIODO<=?") 
+            					(CodCaso,Version,Pfin);
+
+AGC 							from DBRead (DRP,				/*Asignacion de AGC a cada recurso en cada periodo*/
+            					"SELECT R.NOMBRE, AGC.PERIODO, AGC.VALOR FROM IDEAL.DRPT_RECURSOGENERACION_BAS R, IDEAL.DRPT_AGCASIGNADOXRECURSO_BAS AGC WHERE AGC.CODCASO=? AND R.CODCASO=AGC.CODCASO \
+            					AND AGC.VERSION=? AND R.VERSION=AGC.VERSION AND R.CODRECURSO=AGC.CODRECURSO AND R.ESTADO='ACTIVO' AND AGC.PERIODO<=?")
+            					(CodCaso,Version,Pfin);    
+            					
+BanderaAGC 						from DBRead (DRP,				/*Bandera que indica si el Recurso tiene AGC asignado en un periodo*/
+            					"SELECT R.NOMBRE, AGC.PERIODO, CASE  WHEN AGC.VALOR>0 THEN 1 ELSE 0 END AS BANDERAAGC FROM IDEAL.DRPT_RECURSOGENERACION_BAS R, IDEAL.DRPT_AGCASIGNADOXRECURSO_BAS AGC WHERE AGC.CODCASO=? AND R.CODCASO=AGC.CODCASO \
+            					AND AGC.VERSION=? AND R.VERSION=AGC.VERSION AND R.CODRECURSO=AGC.CODRECURSO AND R.ESTADO='ACTIVO' AND AGC.PERIODO<=?")
+            					(CodCaso,Version,Pfin);              					  
+            					
+UnidadesAGC 					from DBRead (DRP,				/*Unidades habilitadas para hacer AGC*/
+            					"SELECT DISTINCT U.NOMBRE FROM IDEAL.DRPT_AGCARRIBAYABAJO_BAS AGC, IDEAL.DRPT_UNIDADGENERACION_BAS U, IDEAL.DRPV_AGCUNIDADPERIODO T \
+								WHERE AGC.CODCASO=? AND   U.CODCASO=AGC.CODCASO AND  T.CODCASO=AGC.CODCASO AND AGC.VERSION=? AND U.VERSION=AGC.VERSION AND T.VERSION=AGC.VERSION \
+								AND AGC.CODUNIDAD=U.CODUNIDAD AND AGC.CODUNIDAD=T.CODUNIDAD AND AGC.PERIODO=T.PERIODO AND AGC.PERIODO<=?") 
+            					(CodCaso,Version,Pfin);	
+
+AGCUnd 							from DBRead (DRP,				/*Asignacion de AGC a cada unidad en cada periodo*/
+            					"SELECT U.NOMBRE, AGC.PERIODO, AGC.VALARRIBA FROM IDEAL.DRPT_AGCARRIBAYABAJO_BAS AGC, IDEAL.DRPT_UNIDADGENERACION_BAS U, IDEAL.DRPV_AGCUNIDADPERIODO T  \
+								WHERE AGC.CODCASO=? AND   U.CODCASO=AGC.CODCASO AND  T.CODCASO=AGC.CODCASO AND AGC.VERSION=? AND U.VERSION=AGC.VERSION AND T.VERSION=AGC.VERSION \
+								AND AGC.CODUNIDAD=U.CODUNIDAD AND AGC.CODUNIDAD=T.CODUNIDAD AND AGC.PERIODO=T.PERIODO AND AGC.PERIODO<=?")
+            					(CodCaso,Version,Pfin);     
+
+MinTec_AGC_Und					from DBRead (DRP,				/*Minimo tecnico de las unidades para hacer AGC*/							
+								"SELECT U.NOMBRE, AGC.PERIODO, T.MINIMO_TECNICO FROM IDEAL.DRPT_AGCARRIBAYABAJO_BAS AGC, IDEAL.DRPT_UNIDADGENERACION_BAS U, IDEAL.DRPV_AGCUNIDADPERIODO T \
+								WHERE AGC.CODCASO=? AND   U.CODCASO=AGC.CODCASO AND  T.CODCASO=AGC.CODCASO AND AGC.VERSION=? AND U.VERSION=AGC.VERSION AND T.VERSION=AGC.VERSION AND AGC.CODUNIDAD=U.CODUNIDAD \
+								AND AGC.CODUNIDAD=T.CODUNIDAD AND AGC.PERIODO=T.PERIODO AND AGC.PERIODO<=?")   
+								(CodCaso,Version,Pfin);  
+/*|__________________________________________________________________________________________________________________________________________________________________________________________________________|*/
+
+
+/*|==========================================================================================INFORMACION DE LA OFERTA========================================================================================|*/
+Disp_Rec						from DBRead(DRP,				/*Disponibilidad Declarada de los Recursos por Periodo*/
+								"SELECT R.NOMBRE,D.PERIODO,D.DISP FROM IDEAL.DRPV_DISPONIBILIDADRECURSO_BAS D, IDEAL.DRPT_RECURSOGENERACION_BAS R WHERE D.CODCASO=? AND D.VERSION=? \
+								AND R.CODCASO=D.CODCASO AND R.VERSION=D.VERSION AND D.CODRECURSO=R.CODRECURSO AND R.ESTADO='ACTIVO'")                      
+								(CodCaso,Version);      
+
+Disp_Und						from DBRead(DRP,				/*Disponibilidad Declarada de las unidades por Periodo*/
+								"SELECT U.NOMBRE, D.PERIODO, D.VALOR FROM IDEAL.DRPT_DISPONIBILIDADUNI_BAS D, IDEAL.DRPT_UNIDADGENERACION_BAS U WHERE D.CODCASO=? AND U.CODCASO=D.CODCASO AND D.VERSION=? \
+								AND U.VERSION=D.VERSION AND U.CODUNIDAD=D.CODUNIDAD AND U.ESTADO='ACTIVO' AND D.PERIODO<=?")                      
+								(CodCaso,Version,Pfin); 							
+            					            					
+OfertaRecurso 					from DBRead(DRP,				/*Precio de Oferta del Recurso*/
+								"SELECT R.NOMBRE, O.PERIODO, O.PRECIO FROM IDEAL.DRPT_OFERTAXSGRECURSO_BAS O, IDEAL.DRPT_RECURSOGENERACION_BAS R WHERE O.CODCASO=? AND O.VERSION=? AND R.CODCASO=O.CODCASO \
+								AND R.VERSION=O.VERSION AND O.CODRECURSO=R.CODRECURSO  AND R.ESTADO='ACTIVO' ")
+								(CodCaso,Version);      								
+
+PAP_Recurso 					from DBRead(DRP,				/*Precio de Arranque y Parada del Recurso*/
+								"SELECT R.NOMBRE, P.PERIODO, P.PRECIO PAP FROM  IDEAL.DRPT_RECURSOGENERACION_BAS R, IDEAL.DRPT_COSTOARRAPARAXRECURSO_BAS P, IDEAL.DRPT_MODRAMPAPLICAR_BAS C WHERE R.CODCASO=? AND P.CODCASO=R.CODCASO \
+								AND C.CODCASO=R.CODCASO AND R.VERSION=? AND P.VERSION=R.VERSION AND C.VERSION=R.VERSION AND P.CODRECURSO=R.CODRECURSO AND C.CODRECURSO=R.CODRECURSO AND R.ESTADO='ACTIVO' \
+								AND C.CONFIGURACION=P.CONFIGURACION AND C.PERIODO=P.PERIODO AND R.DESPACHOCENTRAL='S' AND R.TIPO LIKE 'T%' AND R.TIPO<>'TI'")
+								(CodCaso,Version); 
+        						
+
+Conf_Prd						from DBRead(DRP,				/*Configuracion de cada recurso termico en cada periodo*/
+								"SELECT R.NOMBRE, RA.PERIODO, CONCAT(CONCAT(CAST(RA.CONFIGURACION AS VARCHAR(3)),'_'),RA.COMBUSTIBLE) AS CONFIG  FROM \
+								(SELECT CODRECURSO, CONFIGURACION, COMBUSTIBLE, PERIODO FROM IDEAL.DRPT_MODRAMPAPLICAR_BAS WHERE CODCASO=? AND VERSION=?) RA, \
+								(SELECT CODRECURSO, NOMBRE FROM IDEAL.DRPT_RECURSOGENERACION_BAS WHERE CODCASO=? AND VERSION=? AND ESTADO='ACTIVO' AND DESPACHOCENTRAL='S' AND TIPO IN ('T','TR')) R \
+								WHERE RA.CODRECURSO=R.CODRECURSO")
+								(CodCaso,Version,CodCaso,Version); 		
+								
+/*BanderaPruebas					from DBRead (DRP,				
+								"SELECT R.NOMBRE, P.PERIODO, CASE P.BANDERA WHEN 'NP' THEN 0 ELSE 1 END  PRUEBAS FROM IDEAL.DRPT_PRUEBASRECURSO_BAS P, IDEAL.DRPT_RECURSOGENERACION_BAS R WHERE P.CODCASO=? \
+								AND R.CODCASO=P.CODCASO AND P.VERSION=? AND R.VERSION=P.VERSION AND R.CODRECURSO=P.CODRECURSO AND R.ESTADO='ACTIVO' AND P.PERIODO<=? ")
+								(CodCaso,Version,Pfin);	*/			
+								
+BanderaPruebas					from DBRead (DRP,				/*Bandera que indica si el recurso esta o no en pruebas, es 1 si tienen pruebas. CAMBIA PARA EL IDEAL, NO SE CONSIDERAN PRUEBAS DE DISPONIBILIDAD*/
+								"SELECT R.NOMBRE, P.PERIODO, CASE WHEN (E.ESCENARIO='DESP. IDEAL' AND P.BANDERA IN ('NP','D')) THEN 0 \
+																  WHEN (E.ESCENARIO='DESP. IDEAL' AND P.BANDERA NOT IN ('NP','D')) THEN 1 \
+								                                  WHEN (E.ESCENARIO NOT LIKE 'DESP. IDEAL' AND P.BANDERA IN ('NP')) THEN 0 \
+								                                  WHEN (E.ESCENARIO NOT LIKE 'DESP. IDEAL' AND P.BANDERA NOT IN ('NP')) THEN 1 END  AS PRUEBAS FROM \
+								(SELECT NOMBRE, CODRECURSO FROM IDEAL.DRPT_RECURSOGENERACION_BAS WHERE ESTADO='ACTIVO'AND CODCASO=? AND VERSION=?) R, \
+								(SELECT CODRECURSO, PERIODO, BANDERA FROM IDEAL.DRPT_PRUEBASRECURSO_BAS WHERE CODCASO=? AND VERSION=? AND PERIODO<=?)  P, \
+								(SELECT ESCENARIO FROM IDEAL.DRPT_ADMINISTRARCASO_BAS WHERE CODCASO=?) E \
+								WHERE R.CODRECURSO=P.CODRECURSO")
+								(CodCaso,Version,CodCaso,Version,Pfin,CodCaso); 	 
+								
+
+BanderaPruebasUnidad 			from DBRead(DRP,				/*Bandera que indica si la unidad esta o no en pruebas, es 1 si tienen pruebas*/
+            					"SELECT U.NOMBRE, P.PERIODO, CASE P.BANDERA WHEN 'NP' THEN 0 ELSE 1 END  PRUEBAS  FROM IDEAL.DRPT_PRUEBASUNIDAD_BAS P, IDEAL.DRPT_UNIDADGENERACION_BAS U \
+            					WHERE P.CODCASO=? AND U.CODCASO=P.CODCASO  AND P.VERSION=? AND U.VERSION=P.VERSION AND U.ESTADO='ACTIVO' AND P.CODUNIDAD=U.CODUNIDAD \
+            					AND P.PERIODO<=? ")            
+            					(CodCaso,Version,Pfin);														
+/*|__________________________________________________________________________________________________________________________________________________________________________________________________________|*/
+
+
+/*|==================================================================================INFORMACION GENERAL DE RECURSOS TERMICOS================================================================================|*/
+nArranques						from DBRead(DRP,				/*Informacion del numero maximo de arranques de un recurso termico*/
+								"SELECT R.NOMBRE, MAX(U.NUMARRANQUE) AS ARRANQUE FROM IDEAL.DRPT_RECURSOGENERACION_BAS R, IDEAL.DRPT_UNIDADGENERACION_BAS U WHERE R.CODCASO=? \
+								AND U.CODCASO=R.CODCASO AND R.VERSION=? AND U.VERSION=R.VERSION AND R.TIPO LIKE 'T%' AND R.TIPO<>'TI' AND R.ESTADO='ACTIVO' \
+								AND U.ESTADO='ACTIVO' AND R.DESPACHOCENTRAL='S' AND U.CODRECURSO=R.CODRECURSO GROUP BY R.NOMBRE ")
+								(CodCaso,Version);	
+								
+Bandera_Disp 					from DBRead(DRP,				/*Bandera que indica si el recurso esta disponible o no en el periodo, se usa para el tiempo de calentamiento*/
+            					"SELECT R.NOMBRE,D.PERIODO, CASE WHEN D.DISP>0 THEN 1 ELSE 0 END AS aDISP FROM IDEAL.DRPV_DISPONIBILIDADRECURSO_BAS D, IDEAL.DRPT_RECURSOGENERACION_BAS R \
+            					WHERE D.CODCASO=? AND D.VERSION=? AND R.CODCASO=D.CODCASO AND R.VERSION=D.VERSION AND D.CODRECURSO=R.CODRECURSO AND D.PERIODO<=? \
+            					AND R.ESTADO='ACTIVO' AND R.ESTADO='ACTIVO' AND R.DESPACHOCENTRAL='S' AND R.TIPO LIKE 'T%' AND R.TIPO<>'TI' ")
+            					(CodCaso,Version,Pfin);                                  					
+            					
+R_Conf							from DBRead(DRP,				/*Configuraciones posibles  para cada recurso termico, se concatena Recurso y numero*/
+								"SELECT DISTINCT CONCAT(CONCAT(CONCAT(CONCAT(R.NOMBRE,'_'),CAST(C.CONFIGURACION AS VARCHAR(3))),'_'),C.COMBUSTIBLE) AS CONF FROM \
+								(SELECT DISTINCT CODRECURSO, CONFIGURACION, COMBUSTIBLE FROM IDEAL.DRPT_MODRAMPSUBMODELOS_BAS WHERE CODCASO=? AND VERSION=? AND COMBUSTIBLE NOT LIKE '%AGU%') C, \
+								(SELECT CODRECURSO, NOMBRE FROM IDEAL.DRPT_RECURSOGENERACION_BAS WHERE CODCASO=? AND VERSION=? AND ESTADO='ACTIVO' \
+								AND DESPACHOCENTRAL='S' AND TIPO IN ('T','TR')) R\
+								WHERE R.CODRECURSO=C.CODRECURSO ")
+								(CodCaso,Version,CodCaso,Version); 	  
+
+MinTecRecurso_T  				from DBRead(DRP,				/*Minimo Tecnico de los Recursos Termicos segun Configuracion*/	          
+								"SELECT CONCAT(CONCAT(CONCAT(CONCAT(R.NOMBRE,'_'),CAST(C.CONFIGURACION AS VARCHAR(3))),'_'),C.COMBUSTIBLE) AS CONF, M.MINTECNICO FROM \
+  								(SELECT CODRECURSO, CONFIGURACION, COMBUSTIBLE, MAX(MINTECNICO) AS MINTECNICO FROM IDEAL.DRPT_MODRAMPMINTECNICO_BAS WHERE CODCASO=? AND VERSION=? AND COMBUSTIBLE NOT LIKE '%AGU%' GROUP BY CODRECURSO, CONFIGURACION, COMBUSTIBLE) M, \
+  								(SELECT CODRECURSO, NOMBRE FROM IDEAL.DRPT_RECURSOGENERACION_BAS WHERE CODCASO=? AND VERSION=? AND DESPACHOCENTRAL='S' AND ESTADO='ACTIVO') R, \
+								(SELECT DISTINCT CODRECURSO, CONFIGURACION, COMBUSTIBLE FROM IDEAL.DRPT_MODRAMPSUBMODELOS_BAS WHERE CODCASO=? AND VERSION=? AND COMBUSTIBLE NOT LIKE '%AGU%') C \
+								WHERE M.CODRECURSO=R.CODRECURSO AND M.CODRECURSO=C.CODRECURSO AND M.CONFIGURACION=C.CONFIGURACION AND C.COMBUSTIBLE=M.COMBUSTIBLE ")
+								(CodCaso,Version,CodCaso,Version,CodCaso,Version);								
+
+Conf_Tabla						from DBRead(DRP,				/*Tabla que relaciona las configuraciones (Concatenada Recurso_Numero) con los recursos termicos y el numero*/ 
+								"SELECT DISTINCT CONCAT(CONCAT(CONCAT(CONCAT(R.NOMBRE,'_'),CAST(C.CONFIGURACION AS VARCHAR(3))),'_'),C.COMBUSTIBLE) AS CONF, R.NOMBRE, CONCAT(CONCAT(CAST(C.CONFIGURACION AS VARCHAR(3)),'_'),C.COMBUSTIBLE) AS CONFIGUR FROM \
+								(SELECT DISTINCT CODRECURSO, CONFIGURACION, COMBUSTIBLE FROM IDEAL.DRPT_MODRAMPSUBMODELOS_BAS WHERE CODCASO=? AND VERSION=? AND COMBUSTIBLE NOT LIKE '%AGU%') C, \
+								(SELECT CODRECURSO, NOMBRE FROM IDEAL.DRPT_RECURSOGENERACION_BAS WHERE CODCASO=? AND VERSION=? AND ESTADO='ACTIVO' \
+								AND DESPACHOCENTRAL='S' AND TIPO IN ('T','TR')) R\
+								WHERE R.CODRECURSO=C.CODRECURSO ")
+								(CodCaso,Version,CodCaso,Version); 	    
+
+TiempoCaliente					from DBRead(DRP,				/*Maximo Tiempo Fuera de Linea para Considerar el Recurso Caliente, indexado por configuracion*/
+								"SELECT CONCAT(CONCAT(CONCAT(CONCAT(R.NOMBRE,'_'),CAST(M.CONFIGURACION AS VARCHAR(3))),'_'),M.COMBUSTIBLE) AS CONF, V.VALORFINAL AS TCALIENTE FROM \
+								(SELECT DISTINCT CODRECURSO, CONFIGURACION, COMBUSTIBLE FROM IDEAL.DRPT_MODRAMPSUBMODELOS_BAS WHERE CODCASO=? AND VERSION=? AND COMBUSTIBLE NOT LIKE '%AGU%') M, \
+								(SELECT CODRECURSO, NOMBRE FROM IDEAL.DRPT_RECURSOGENERACION_BAS WHERE CODCASO=? AND VERSION=? AND ESTADO='ACTIVO' AND DESPACHOCENTRAL='S' AND TIPO IN ('T','TR')) R, \
+								(SELECT CODRECURSO, CONFIGURACION, COMBUSTIBLE, ESTADO, MAX(VALORFINAL) AS VALORFINAL FROM IDEAL.DRPT_VALMINMAXESTADOSRAMP_BAS  WHERE CODCASO=? AND VERSION=? GROUP BY CODRECURSO, CONFIGURACION, COMBUSTIBLE, ESTADO) V \
+								WHERE R.CODRECURSO=M.CODRECURSO AND R.CODRECURSO=V.CODRECURSO AND V.CONFIGURACION=M.CONFIGURACION AND V.COMBUSTIBLE=M.COMBUSTIBLE AND ESTADO='C'")
+								(CodCaso,Version,CodCaso,Version,CodCaso,Version);   	
+															
+TiempoTibio						from DBRead(DRP,				/*Maximo Tiempo Fuera de Linea para Considerar el Recurso Tibio, indexado por configuracion*/
+								"SELECT CONCAT(CONCAT(CONCAT(CONCAT(R.NOMBRE,'_'),CAST(M.CONFIGURACION AS VARCHAR(3))),'_'),M.COMBUSTIBLE) AS CONF, V.VALORFINAL AS TTIBIO FROM \
+								(SELECT DISTINCT CODRECURSO, CONFIGURACION, COMBUSTIBLE FROM IDEAL.DRPT_MODRAMPSUBMODELOS_BAS WHERE CODCASO=? AND VERSION=? AND COMBUSTIBLE NOT LIKE '%AGU%') M, \
+								(SELECT CODRECURSO, NOMBRE FROM IDEAL.DRPT_RECURSOGENERACION_BAS WHERE CODCASO=? AND VERSION=? AND ESTADO='ACTIVO' AND DESPACHOCENTRAL='S' AND TIPO IN ('T','TR')) R, \
+								(SELECT CODRECURSO, CONFIGURACION, COMBUSTIBLE, ESTADO, MAX(VALORFINAL) AS VALORFINAL FROM IDEAL.DRPT_VALMINMAXESTADOSRAMP_BAS  WHERE CODCASO=? AND VERSION=? GROUP BY CODRECURSO, CONFIGURACION, COMBUSTIBLE, ESTADO) V \
+								WHERE R.CODRECURSO=M.CODRECURSO AND R.CODRECURSO=V.CODRECURSO AND V.CONFIGURACION=M.CONFIGURACION AND V.COMBUSTIBLE=M.COMBUSTIBLE AND ESTADO='T' ")
+								(CodCaso,Version,CodCaso,Version,CodCaso,Version);		
+													
+Min_Tiempo_en_Linea 			from DBRead(DRP,				/*Minimo Tiempo en Linea para cada uno de los recursos*/
+								"SELECT R.NOMBRE NOMBRE, MIN(TiempoMinOper) TML FROM IDEAL.DRPT_RECURSOGENERACION_BAS R, IDEAL.DRPT_UNIDADGENERACION_BAS U \
+								WHERE R.CODCASO=? AND U.CODCASO=R.CODCASO AND R.VERSION=? AND U.VERSION=R.VERSION AND   R.ESTADO='ACTIVO' AND U.ESTADO='ACTIVO' \
+								AND R.CODRECURSO=U.CODRECURSO AND R.TIPO LIKE 'T%' AND R.TIPO <> 'TI' AND R.DESPACHOCENTRAL='S' GROUP BY R.NOMBRE ")
+            					(CodCaso,Version); 	
+
+Min_Tiempo_fuera_Linea 			from DBRead(DRP, 				/*Minimo Tiempo que debe estar fuera de linea el recurso*/
+								"SELECT R.NOMBRE NOMBRE, MAX(TIEMPOMINFUEOPER) TFL FROM IDEAL.DRPT_RECURSOGENERACION_BAS R, IDEAL.DRPT_UNIDADGENERACION_BAS U \
+								WHERE R.CODCASO=? AND U.CODCASO=R.CODCASO AND R.VERSION=? AND U.VERSION=R.VERSION AND   R.ESTADO='ACTIVO' AND U.ESTADO='ACTIVO' \
+								AND R.CODRECURSO=U.CODRECURSO AND R.TIPO LIKE 'T%' AND R.TIPO <> 'TI' AND R.DESPACHOCENTRAL='S' GROUP BY R.NOMBRE ")
+            					(CodCaso,Version); 
+
+Tiempo_Aviso_Calentamiento		from DBRead(DRP, 				/*Tupla con la informacion del tiempo de aviso y calentamiento para cada combinacion recurso-configuracion*/		            					
+								"SELECT CONCAT(CONCAT(CONCAT(CONCAT(R.NOMBRE,'_'),CAST(T.CONFIGURACION AS VARCHAR(3))),'_'),T.COMBUSTIBLE) AS CONF, T.TCFRIO, T.TCTIBIO, T.TCCALIENTE, T.TAFRIO, T.TATIBIO, T.TACALIENTE FROM \
+								(SELECT CODRECURSO, CONFIGURACION, COMBUSTIBLE, TCFRIO, TCTIBIO, TCCALIENTE, TAFRIO, TATIBIO, TACALIENTE FROM IDEAL.DRPT_MODRAMPMINTECNICO_BAS WHERE CODCASO=? AND VERSION=?) T, \
+								(SELECT NOMBRE, CODRECURSO FROM IDEAL.DRPT_RECURSOGENERACION_BAS WHERE CODCASO=? AND VERSION=? AND ESTADO='ACTIVO') R, \
+								(SELECT DISTINCT CODRECURSO, CONFIGURACION, COMBUSTIBLE FROM IDEAL.DRPT_MODRAMPSUBMODELOS_BAS WHERE CODCASO=? AND VERSION=? AND COMBUSTIBLE NOT LIKE '%AGU%') C \
+								WHERE T.CODRECURSO=R.CODRECURSO AND T.CODRECURSO=C.CODRECURSO AND T.CONFIGURACION=C.CONFIGURACION AND T.COMBUSTIBLE=C.COMBUSTIBLE ")
+             					(CodCaso,Version,CodCaso,Version,CodCaso,Version);
+/*|__________________________________________________________________________________________________________________________________________________________________________________________________________|*/           						
+
+
+/*|========================================================================================INFORMACION PARA EL MODELO 1======================================================================================|*/
+
+nSegmentosFrio					from DBRead(DRP,				/*Numero maximo de segmentos cada combinacion Recurso_Configuracion para el estado frio*/
+								"SELECT CONCAT(CONCAT(CONCAT(CONCAT(R.NOMBRE,'_'),CAST(N.CONFIGURACION AS VARCHAR(3))),'_'),N.COMBUSTIBLE) AS CONF, N.NMAX_FRIO FROM \
+								(SELECT CODRECURSO,  CONFIGURACION, COMBUSTIBLE, MAX(SEGRAMPA) AS NMAX_FRIO FROM IDEAL.DRPT_MODRAMPSUBMODELOS_BAS WHERE CODCASO=? AND VERSION=? AND SUBMODELO='BUR' AND COMBUSTIBLE NOT LIKE '%AGU%'\
+								AND URFRIO*SEGRAMPA>0 GROUP BY CODRECURSO, CONFIGURACION, COMBUSTIBLE) N, \
+								(SELECT CODRECURSO, NOMBRE FROM IDEAL.DRPT_RECURSOGENERACION_BAS WHERE CODCASO=? AND VERSION=? AND ESTADO='ACTIVO' AND DESPACHOCENTRAL='S') R \
+								WHERE R.CODRECURSO=N.CODRECURSO ")
+								(CodCaso,Version,CodCaso,Version); 	 
+								
+nSegmentosTibio					from DBRead(DRP,				/*Numero maximo de segmentos cada combinacion Recurso_Configuracion para el estado tibio*/
+								"SELECT  CONCAT(CONCAT(CONCAT(CONCAT(R.NOMBRE,'_'),CAST(N.CONFIGURACION AS VARCHAR(3))),'_'),N.COMBUSTIBLE) AS CONF, N.NMAX_TIBIO FROM \
+								(SELECT CODRECURSO,  CONFIGURACION, COMBUSTIBLE,  MAX(SEGRAMPA) AS NMAX_TIBIO FROM IDEAL.DRPT_MODRAMPSUBMODELOS_BAS WHERE CODCASO=? AND VERSION=? AND SUBMODELO='BUR' AND COMBUSTIBLE NOT LIKE '%AGU%'\
+								AND URTIBIO*SEGRAMPA>0 GROUP BY CODRECURSO, CONFIGURACION, COMBUSTIBLE) N, \
+								(SELECT CODRECURSO, NOMBRE FROM IDEAL.DRPT_RECURSOGENERACION_BAS WHERE CODCASO=? AND VERSION=? AND ESTADO='ACTIVO' AND DESPACHOCENTRAL='S') R \
+								WHERE R.CODRECURSO=N.CODRECURSO")
+								(CodCaso,Version,CodCaso,Version); 	 
+								
+nSegmentosCaliente				from DBRead(DRP,				/*Numero maximo de segmentos cada combinacion Recurso_Configuracion para el estado caliente*/
+								"SELECT CONCAT(CONCAT(CONCAT(CONCAT(R.NOMBRE,'_'),CAST(N.CONFIGURACION AS VARCHAR(3))),'_'),N.COMBUSTIBLE) AS CONF, N.NMAX_CALIENTE FROM \
+								(SELECT CODRECURSO,  CONFIGURACION, COMBUSTIBLE,  MAX(SEGRAMPA) AS NMAX_CALIENTE FROM IDEAL.DRPT_MODRAMPSUBMODELOS_BAS WHERE CODCASO=? AND VERSION=? AND SUBMODELO='BUR' AND COMBUSTIBLE NOT LIKE '%AGU%'\
+								AND URCALIENTE*SEGRAMPA>0 GROUP BY CODRECURSO, CONFIGURACION, COMBUSTIBLE) N, \
+								(SELECT CODRECURSO, NOMBRE FROM IDEAL.DRPT_RECURSOGENERACION_BAS WHERE CODCASO=? AND VERSION=? AND ESTADO='ACTIVO' AND DESPACHOCENTRAL='S') R \
+								WHERE R.CODRECURSO=N.CODRECURSO")
+								(CodCaso,Version,CodCaso,Version); 	 
+
+Nmax=5;															/*Numero maximo de segmentos que se pueden declarar segun el acuerdo CNO 531*/								
+								
+SegRampas_Frio					from DBRead(DRP,				/*Valor de cada segmento de entrada para el estado frio*/								
+								"SELECT CONCAT(CONCAT(CONCAT(CONCAT(R.NOMBRE,'_'),CAST(N.CONFIGURACION AS VARCHAR(3))),'_'),N.COMBUSTIBLE) AS CONF,  A.SEGRAMPA, SUM(CASE WHEN (A.SEGRAMPA>=B.SEGRAMPA) THEN B.URFRIO ELSE 0 END) AS BUP_FRIO FROM \
+								(SELECT CODRECURSO, SEGRAMPA, URFRIO, CONFIGURACION, COMBUSTIBLE FROM IDEAL.DRPT_MODRAMPSUBMODELOS_BAS WHERE CODCASO=? AND VERSION=? AND SUBMODELO='BUR' AND COMBUSTIBLE NOT LIKE '%AGU%') A, \
+								(SELECT CODRECURSO, SEGRAMPA, URFRIO, CONFIGURACION, COMBUSTIBLE FROM IDEAL.DRPT_MODRAMPSUBMODELOS_BAS WHERE CODCASO=? AND VERSION=? AND SUBMODELO='BUR' AND COMBUSTIBLE NOT LIKE '%AGU%') B, \
+								(SELECT CODRECURSO, NOMBRE FROM IDEAL.DRPT_RECURSOGENERACION_BAS WHERE CODCASO=? AND VERSION=? AND ESTADO='ACTIVO' AND DESPACHOCENTRAL='S') R, \
+								(SELECT CODRECURSO,  CONFIGURACION, COMBUSTIBLE, MAX(SEGRAMPA) AS NMAX_FRIO FROM IDEAL.DRPT_MODRAMPSUBMODELOS_BAS WHERE CODCASO=? AND VERSION=? AND SUBMODELO='BUR' AND COMBUSTIBLE NOT LIKE '%AGU%'\
+								AND URFRIO*SEGRAMPA>0 GROUP BY CODRECURSO, CONFIGURACION, COMBUSTIBLE) N \
+								WHERE A.CONFIGURACION=B.CONFIGURACION AND A.COMBUSTIBLE=B.COMBUSTIBLE AND A.CONFIGURACION=N.CONFIGURACION AND A.COMBUSTIBLE=N.COMBUSTIBLE \
+								AND A.CODRECURSO=B.CODRECURSO AND A.CODRECURSO=R.CODRECURSO AND A.CODRECURSO=N.CODRECURSO AND A.SEGRAMPA<=N.NMAX_FRIO \
+								GROUP BY CONCAT(CONCAT(CONCAT(CONCAT(R.NOMBRE,'_'),CAST(N.CONFIGURACION AS VARCHAR(3))),'_'),N.COMBUSTIBLE), A.SEGRAMPA")
+								(CodCaso,Version,CodCaso,Version,CodCaso,Version,CodCaso,Version); 	
+
+SegRampas_Tibio					from DBRead(DRP,				/*Valor de cada segmento de entrada para el estado Tibio*/														
+								"SELECT CONCAT(CONCAT(CONCAT(CONCAT(R.NOMBRE,'_'),CAST(N.CONFIGURACION AS VARCHAR(3))),'_'),N.COMBUSTIBLE) AS CONF,  A.SEGRAMPA, SUM(CASE WHEN (A.SEGRAMPA>=B.SEGRAMPA) THEN B.URTIBIO ELSE 0 END) AS BUP_TIBIO FROM \
+								(SELECT CODRECURSO, SEGRAMPA, URTIBIO, CONFIGURACION, COMBUSTIBLE FROM IDEAL.DRPT_MODRAMPSUBMODELOS_BAS WHERE CODCASO=? AND VERSION=? AND SUBMODELO='BUR' AND COMBUSTIBLE NOT LIKE '%AGU%') A, \
+								(SELECT CODRECURSO, SEGRAMPA, URTIBIO, CONFIGURACION, COMBUSTIBLE FROM IDEAL.DRPT_MODRAMPSUBMODELOS_BAS WHERE CODCASO=? AND VERSION=? AND SUBMODELO='BUR' AND COMBUSTIBLE NOT LIKE '%AGU%') B, \
+								(SELECT CODRECURSO, NOMBRE FROM IDEAL.DRPT_RECURSOGENERACION_BAS WHERE CODCASO=? AND VERSION=? AND ESTADO='ACTIVO' AND DESPACHOCENTRAL='S') R, \
+								(SELECT CODRECURSO,  CONFIGURACION, COMBUSTIBLE, MAX(SEGRAMPA) AS NMAX_TIBIO FROM IDEAL.DRPT_MODRAMPSUBMODELOS_BAS WHERE CODCASO=? AND VERSION=? AND SUBMODELO='BUR' AND COMBUSTIBLE NOT LIKE '%AGU%' \
+								AND URTIBIO*SEGRAMPA>0 GROUP BY CODRECURSO, CONFIGURACION, COMBUSTIBLE) N \
+								WHERE A.CONFIGURACION=B.CONFIGURACION AND A.COMBUSTIBLE=B.COMBUSTIBLE AND A.CONFIGURACION=N.CONFIGURACION AND A.COMBUSTIBLE=N.COMBUSTIBLE \
+								AND A.CODRECURSO=B.CODRECURSO AND A.CODRECURSO=R.CODRECURSO AND A.CODRECURSO=N.CODRECURSO AND A.SEGRAMPA<=N.NMAX_TIBIO \
+								GROUP BY CONCAT(CONCAT(CONCAT(CONCAT(R.NOMBRE,'_'),CAST(N.CONFIGURACION AS VARCHAR(3))),'_'),N.COMBUSTIBLE), A.SEGRAMPA")
+								(CodCaso,Version,CodCaso,Version,CodCaso,Version,CodCaso,Version); 	
+							
+SegRampas_Caliente				from DBRead(DRP,				/*Valor de cada segmento de entrada para el estado Caliente*/														
+								"SELECT CONCAT(CONCAT(CONCAT(CONCAT(R.NOMBRE,'_'),CAST(N.CONFIGURACION AS VARCHAR(3))),'_'),N.COMBUSTIBLE) AS CONF,  A.SEGRAMPA, SUM(CASE WHEN (A.SEGRAMPA>=B.SEGRAMPA) THEN B.URCALIENTE ELSE 0 END) AS BUP_CALIENTE FROM \
+								(SELECT CODRECURSO, SEGRAMPA, URCALIENTE, CONFIGURACION, COMBUSTIBLE FROM IDEAL.DRPT_MODRAMPSUBMODELOS_BAS WHERE CODCASO=? AND VERSION=? AND SUBMODELO='BUR' AND COMBUSTIBLE NOT LIKE '%AGU%') A, \
+								(SELECT CODRECURSO, SEGRAMPA, URCALIENTE, CONFIGURACION, COMBUSTIBLE FROM IDEAL.DRPT_MODRAMPSUBMODELOS_BAS WHERE CODCASO=? AND VERSION=? AND SUBMODELO='BUR' AND COMBUSTIBLE NOT LIKE '%AGU%') B, \
+								(SELECT CODRECURSO, NOMBRE FROM IDEAL.DRPT_RECURSOGENERACION_BAS WHERE CODCASO=? AND VERSION=? AND ESTADO='ACTIVO' AND DESPACHOCENTRAL='S') R, \
+								(SELECT CODRECURSO,  CONFIGURACION,COMBUSTIBLE, MAX(SEGRAMPA) AS NMAX_CALIENTE FROM IDEAL.DRPT_MODRAMPSUBMODELOS_BAS WHERE CODCASO=? AND VERSION=? AND SUBMODELO='BUR' AND COMBUSTIBLE NOT LIKE '%AGU%'\
+								AND URCALIENTE*SEGRAMPA>0 GROUP BY CODRECURSO, CONFIGURACION, COMBUSTIBLE) N \
+								WHERE A.CONFIGURACION=B.CONFIGURACION AND A.COMBUSTIBLE=B.COMBUSTIBLE AND A.CONFIGURACION=N.CONFIGURACION AND A.COMBUSTIBLE=N.COMBUSTIBLE \
+								AND A.CODRECURSO=B.CODRECURSO AND A.CODRECURSO=R.CODRECURSO AND A.CODRECURSO=N.CODRECURSO AND A.SEGRAMPA<=N.NMAX_CALIENTE \
+								GROUP BY CONCAT(CONCAT(CONCAT(CONCAT(R.NOMBRE,'_'),CAST(N.CONFIGURACION AS VARCHAR(3))),'_'),N.COMBUSTIBLE), A.SEGRAMPA ")
+								(CodCaso,Version,CodCaso,Version,CodCaso,Version,CodCaso,Version); 	
+								
+nSegmentoSalida					from DBRead(DRP,				/*Numero maximo de segmentos para cada combinacion Recurso_Configuracion en la rampa de salida*/
+								"SELECT CONCAT(CONCAT(CONCAT(CONCAT(R.NOMBRE,'_'),CAST(N.CONFIGURACION AS VARCHAR(3))),'_'),N.COMBUSTIBLE) AS CONF, MAX(N.SEGRAMPA) FROM \
+								(SELECT CODRECURSO, CONFIGURACION, COMBUSTIBLE, SEGRAMPA FROM IDEAL.DRPT_MODRAMPSUBMODELOS_BAS WHERE CODCASO=? AND VERSION=? AND SUBMODELO='BDR' AND COMBUSTIBLE NOT LIKE '%AGU%') N, \
+								(SELECT NOMBRE, CODRECURSO FROM IDEAL.DRPT_RECURSOGENERACION_BAS  WHERE CODCASO=? AND VERSION=? AND ESTADO='ACTIVO' AND DESPACHOCENTRAL='S') R \
+								WHERE N.CODRECURSO=R.CODRECURSO GROUP BY CONCAT(CONCAT(CONCAT(CONCAT(R.NOMBRE,'_'),CAST(N.CONFIGURACION AS VARCHAR(3))),'_'),N.COMBUSTIBLE) ")
+								(CodCaso,Version,CodCaso,Version);
+								
+SegRampas_Salida				from DBRead(DRP,				/*Valor de cada segmento de salida*/																
+								"SELECT CONCAT(CONCAT(CONCAT(CONCAT(R.NOMBRE,'_'),CAST(N.CONFIGURACION AS VARCHAR(3))),'_'),N.COMBUSTIBLE) AS CONF, (N.NMAX_SALIDA-A.SEGRAMPA+1) AS SEGRAMP, SUM(CASE WHEN (A.SEGRAMPA>=B.SEGRAMPA) THEN B.BSALIDA ELSE 0 END) AS B_SALIDA FROM \
+								(SELECT CODRECURSO, CONFIGURACION, COMBUSTIBLE, SEGRAMPA, URFRIO AS BSALIDA FROM IDEAL.DRPT_MODRAMPSUBMODELOS_BAS WHERE CODCASO=? AND VERSION=? AND SUBMODELO='BDR' AND COMBUSTIBLE NOT LIKE '%AGU%') A, \
+								(SELECT CODRECURSO, CONFIGURACION, COMBUSTIBLE, SEGRAMPA, URFRIO AS BSALIDA FROM IDEAL.DRPT_MODRAMPSUBMODELOS_BAS WHERE CODCASO=? AND VERSION=? AND SUBMODELO='BDR' AND COMBUSTIBLE NOT LIKE '%AGU%') B, \
+								(SELECT CODRECURSO, NOMBRE FROM IDEAL.DRPT_RECURSOGENERACION_BAS WHERE CODCASO=? AND VERSION=? AND ESTADO='ACTIVO' AND DESPACHOCENTRAL='S') R, \
+								(SELECT CODRECURSO,  CONFIGURACION,COMBUSTIBLE, MAX(SEGRAMPA) AS NMAX_SALIDA    FROM IDEAL.DRPT_MODRAMPSUBMODELOS_BAS WHERE CODCASO=? AND VERSION=? AND SUBMODELO='BDR' AND COMBUSTIBLE NOT LIKE '%AGU%'\
+								AND URFRIO*SEGRAMPA>0 GROUP BY CODRECURSO, CONFIGURACION, COMBUSTIBLE) N \
+								WHERE A.CONFIGURACION=B.CONFIGURACION AND A.COMBUSTIBLE=B.COMBUSTIBLE AND A.CONFIGURACION=N.CONFIGURACION AND A.COMBUSTIBLE=N.COMBUSTIBLE \
+								AND A.CODRECURSO=B.CODRECURSO AND A.CODRECURSO=R.CODRECURSO AND A.CODRECURSO=N.CODRECURSO AND A.SEGRAMPA<=N.NMAX_SALIDA \
+								GROUP BY CONCAT(CONCAT(CONCAT(CONCAT(R.NOMBRE,'_'),CAST(N.CONFIGURACION AS VARCHAR(3))),'_'),N.COMBUSTIBLE), (N.NMAX_SALIDA-A.SEGRAMPA+1)")
+								(CodCaso,Version,CodCaso,Version,CodCaso,Version,CodCaso,Version); 	
+																
+RampasSalida_Esp				from DBRead(DRP,				/*Valor del segmento de salida especial*/
+								"SELECT CONCAT(CONCAT(CONCAT(CONCAT(R.NOMBRE,'_'),CAST(N.CONFIGURACION AS VARCHAR(3))),'_'),N.COMBUSTIBLE) AS CONF, N.BLOQUEOESP FROM \
+								(SELECT CODRECURSO, CONFIGURACION, COMBUSTIBLE, BLOQUEOESP FROM IDEAL.DRPT_MODRAMPMINTECNICO_BAS WHERE CODCASO=? AND VERSION=? AND COMBUSTIBLE NOT LIKE '%AGU%' AND BLOQUEOESP>0) N, \
+								(SELECT CODRECURSO, NOMBRE FROM IDEAL.DRPT_RECURSOGENERACION_BAS WHERE CODCASO=? AND VERSION=? AND ESTADO='ACTIVO' AND DESPACHOCENTRAL='S') R \
+								WHERE R.CODRECURSO=N.CODRECURSO")						
+								(CodCaso,Version,CodCaso,Version);
+
+Rec_Salida_Esp					from DBRead(DRP,				/*Recursos con salida especial*/					
+								"SELECT DISTINCT R.NOMBRE FROM \
+								(SELECT CODRECURSO, CONFIGURACION, COMBUSTIBLE, BLOQUEOESP FROM IDEAL.DRPT_MODRAMPMINTECNICO_BAS WHERE CODCASO=? AND VERSION=? AND COMBUSTIBLE NOT LIKE '%AGU%' AND BLOQUEOESP>0) N, \
+								(SELECT CODRECURSO, NOMBRE FROM IDEAL.DRPT_RECURSOGENERACION_BAS WHERE CODCASO=? AND VERSION=? AND ESTADO='ACTIVO' AND DESPACHOCENTRAL='S') R \
+								WHERE R.CODRECURSO=N.CODRECURSO")					
+								(CodCaso,Version,CodCaso,Version);																		
+/*|__________________________________________________________________________________________________________________________________________________________________________________________________________|*/
+
+
+/*|========================================================================================INFORMACION PARA EL MODELO 2======================================================================================|*/
+
+RT_Mod2							from DBRead(DRP,				/*Recursos termicos con modelo 2*/					
+								"SELECT DISTINCT R.NOMBRE FROM \
+								(SELECT NOMBRE, CODRECURSO FROM IDEAL.DRPT_RECURSOGENERACION_BAS  WHERE CODCASO=? AND VERSION=? AND ESTADO='ACTIVO' AND DESPACHOCENTRAL='S') R, \
+								(SELECT DISTINCT CODRECURSO, CONFIGURACION, COMBUSTIBLE FROM IDEAL.DRPT_MODRAMPAPLICAR_BAS WHERE CODCASO=? AND VERSION=?) M,\
+								(SELECT CODRECURSO, CONFIGURACION, COMBUSTIBLE, MINFRIO, MAXFRIO, URFRIO  FROM IDEAL.DRPT_MODRAMPSUBMODELOS_BAS  WHERE CODCASO=? AND VERSION=? AND SUBMODELO IN('TD','TC') AND COMBUSTIBLE NOT LIKE '%AGU%') N \
+								WHERE R.CODRECURSO=N.CODRECURSO AND R.CODRECURSO=M.CODRECURSO AND M.CONFIGURACION=N.CONFIGURACION AND M.COMBUSTIBLE=N.COMBUSTIBLE")
+								(CodCaso,Version,CodCaso,Version,CodCaso,Version);
+
+Interv_Mod2_UR					from DBRead(DRP,				/*Detalle de los intervalos del modelo 2 para subir (UR) para los recursos termicos*/					
+								"SELECT CONCAT(CONCAT(CONCAT(CONCAT(R.NOMBRE,'_'),CAST(N.CONFIGURACION AS VARCHAR(3))),'_'),N.COMBUSTIBLE) AS CONF, \
+								CONCAT(CONCAT(CONCAT(CONCAT(CONCAT(CONCAT(CONCAT(CONCAT(R.NOMBRE,'_'),CAST(N.CONFIGURACION AS VARCHAR(3))),'_'),N.COMBUSTIBLE),'_UR_'),N.MINFRIO),'_'),N.MAXFRIO) AS INTERVALO, \
+								N.MINFRIO AS MINIMO, N.MAXFRIO AS MAXIMO, N.URFRIO AS UR FROM \
+								(SELECT NOMBRE, CODRECURSO FROM IDEAL.DRPT_RECURSOGENERACION_BAS  WHERE CODCASO=? AND VERSION=? AND ESTADO='ACTIVO' AND DESPACHOCENTRAL='S') R, \
+								(SELECT CODRECURSO, CONFIGURACION, COMBUSTIBLE, MINFRIO, MAXFRIO, URFRIO  FROM IDEAL.DRPT_MODRAMPSUBMODELOS_BAS  WHERE CODCASO=? AND VERSION=? AND SUBMODELO='TC' AND COMBUSTIBLE NOT LIKE '%AGU%') N \
+								WHERE R.CODRECURSO=N.CODRECURSO")
+								(CodCaso,Version,CodCaso,Version);
+								
+Interv_Mod2_DR					from DBRead(DRP,				/*Detalle de los intervalos del modelo 2 para bajar (DR) para los recursos termicos*/
+								"SELECT CONCAT(CONCAT(CONCAT(CONCAT(R.NOMBRE,'_'),CAST(N.CONFIGURACION AS VARCHAR(3))),'_'),N.COMBUSTIBLE) AS CONF, \
+								CONCAT(CONCAT(CONCAT(CONCAT(CONCAT(CONCAT(CONCAT(CONCAT(R.NOMBRE,'_'),CAST(N.CONFIGURACION AS VARCHAR(3))),'_'),N.COMBUSTIBLE),'_DR_'),N.MINFRIO),'_'),N.MAXFRIO) AS INTERVALO, \
+								N.MINFRIO AS MINIMO, N.MAXFRIO AS MAXIMO, N.URFRIO AS DR FROM \
+								(SELECT NOMBRE, CODRECURSO FROM IDEAL.DRPT_RECURSOGENERACION_BAS  WHERE CODCASO=? AND VERSION=? AND ESTADO='ACTIVO' AND DESPACHOCENTRAL='S') R, \
+								(SELECT CODRECURSO, CONFIGURACION, COMBUSTIBLE, MINFRIO, MAXFRIO, URFRIO  FROM IDEAL.DRPT_MODRAMPSUBMODELOS_BAS  WHERE CODCASO=? AND VERSION=? AND SUBMODELO='TD' AND COMBUSTIBLE NOT LIKE '%AGU%') N \
+								WHERE R.CODRECURSO=N.CODRECURSO")
+								(CodCaso,Version,CodCaso,Version);
+
+Interv_UR						from DBRead(DRP,				/*Etiqueta de los intervalos del modelo 2 para subir (UR) para los recursos termicos*/
+								"SELECT DISTINCT \
+								CONCAT(CONCAT(CONCAT(CONCAT(CONCAT(CONCAT(CONCAT(CONCAT(R.NOMBRE,'_'),CAST(N.CONFIGURACION AS VARCHAR(3))),'_'),N.COMBUSTIBLE),'_UR_'),N.MINFRIO),'_'),N.MAXFRIO) AS INTERVALO FROM \
+								(SELECT NOMBRE, CODRECURSO FROM IDEAL.DRPT_RECURSOGENERACION_BAS  WHERE CODCASO=? AND VERSION=? AND ESTADO='ACTIVO' AND DESPACHOCENTRAL='S') R, \
+								(SELECT CODRECURSO, CONFIGURACION, COMBUSTIBLE, MINFRIO, MAXFRIO, URFRIO  FROM IDEAL.DRPT_MODRAMPSUBMODELOS_BAS  WHERE CODCASO=? AND VERSION=? AND SUBMODELO='TC' AND COMBUSTIBLE NOT LIKE '%AGU%') N \
+								WHERE R.CODRECURSO=N.CODRECURSO")
+								(CodCaso,Version,CodCaso,Version);								
+
+Interv_DR						from DBRead(DRP,				/*Etiqueta de los intervalos del modelo 2 para bajar (DR) para los recursos termicos*/
+								"SELECT DISTINCT \
+								CONCAT(CONCAT(CONCAT(CONCAT(CONCAT(CONCAT(CONCAT(CONCAT(R.NOMBRE,'_'),CAST(N.CONFIGURACION AS VARCHAR(3))),'_'),N.COMBUSTIBLE),'_DR_'),N.MINFRIO),'_'),N.MAXFRIO) AS INTERVALO FROM \
+								(SELECT NOMBRE, CODRECURSO FROM IDEAL.DRPT_RECURSOGENERACION_BAS  WHERE CODCASO=? AND VERSION=? AND ESTADO='ACTIVO' AND DESPACHOCENTRAL='S') R, \
+								(SELECT CODRECURSO, CONFIGURACION, COMBUSTIBLE, MINFRIO, MAXFRIO, URFRIO  FROM IDEAL.DRPT_MODRAMPSUBMODELOS_BAS  WHERE CODCASO=? AND VERSION=? AND SUBMODELO='TD' AND COMBUSTIBLE NOT LIKE '%AGU%') N \
+								WHERE R.CODRECURSO=N.CODRECURSO")
+								(CodCaso,Version,CodCaso,Version);
+/*|__________________________________________________________________________________________________________________________________________________________________________________________________________|*/
+ 
+
+/*|==================================================================================INFORMACION PARA EL DESPACHO ALTERNATIVO================================================================================|*/
+
+RT_URPrima						from DBRead(DRP,				/*Recursos termicos con modelo de despacho alternativo de subida*/					
+								"SELECT DISTINCT R.NOMBRE FROM \
+  								(SELECT NOMBRE, CODRECURSO FROM IDEAL.DRPT_RECURSOGENERACION_BAS  WHERE CODCASO=? AND VERSION=? AND ESTADO='ACTIVO' AND DESPACHOCENTRAL='S') R, \
+  								(SELECT CODRECURSO, CONFIGURACION, COMBUSTIBLE, URPRIMA FROM IDEAL.DRPT_MODRAMPMINTECNICO_BAS WHERE CODCASO=? AND VERSION=? AND URPRIMA>0) N \
+								WHERE R.CODRECURSO=N.CODRECURSO")
+								(CodCaso,Version,CodCaso,Version);			
+								
+Dat_URPrima						from DBRead(DRP,				/*Informacion del valor de UR prima para cada uno de los recursos en cada configuracion*/					
+								"SELECT CONCAT(CONCAT(CONCAT(CONCAT(R.NOMBRE,'_'),CAST(N.CONFIGURACION AS VARCHAR(3))),'_'),N.COMBUSTIBLE) AS CONF, N.URPRIMA FROM \
+  								(SELECT NOMBRE, CODRECURSO FROM IDEAL.DRPT_RECURSOGENERACION_BAS  WHERE CODCASO=? AND VERSION=? AND ESTADO='ACTIVO' AND DESPACHOCENTRAL='S') R, \
+  								(SELECT CODRECURSO, CONFIGURACION, COMBUSTIBLE, URPRIMA FROM IDEAL.DRPT_MODRAMPMINTECNICO_BAS WHERE CODCASO=? AND VERSION=? AND URPRIMA>0) N \
+								WHERE R.CODRECURSO=N.CODRECURSO")
+								(CodCaso,Version,CodCaso,Version);		
+								
+RT_DRPrima						from DBRead(DRP,				/*Recursos termicos con modelo de despacho alternativo de bajada*/					
+								"SELECT DISTINCT R.NOMBRE FROM \
+  								(SELECT NOMBRE, CODRECURSO FROM IDEAL.DRPT_RECURSOGENERACION_BAS  WHERE CODCASO=? AND VERSION=? AND ESTADO='ACTIVO' AND DESPACHOCENTRAL='S') R, \
+  								(SELECT CODRECURSO, CONFIGURACION, COMBUSTIBLE, DRPRIMA FROM IDEAL.DRPT_MODRAMPMINTECNICO_BAS WHERE CODCASO=? AND VERSION=? AND DRPRIMA>0) N \
+								WHERE R.CODRECURSO=N.CODRECURSO")
+								(CodCaso,Version,CodCaso,Version);
+								
+Dat_DRPrima						from DBRead(DRP,				/*Informacion del valor de DR prima para cada uno de los recursos en cada configuracion*/					
+								"SELECT CONCAT(CONCAT(CONCAT(CONCAT(R.NOMBRE,'_'),CAST(N.CONFIGURACION AS VARCHAR(3))),'_'),N.COMBUSTIBLE) AS CONF, N.DRPRIMA FROM \
+  								(SELECT NOMBRE, CODRECURSO FROM IDEAL.DRPT_RECURSOGENERACION_BAS  WHERE CODCASO=? AND VERSION=? AND ESTADO='ACTIVO' AND DESPACHOCENTRAL='S') R, \
+  								(SELECT CODRECURSO, CONFIGURACION, COMBUSTIBLE, DRPRIMA FROM IDEAL.DRPT_MODRAMPMINTECNICO_BAS WHERE CODCASO=? AND VERSION=? AND DRPRIMA>0) N \
+								WHERE R.CODRECURSO=N.CODRECURSO")
+								(CodCaso,Version,CodCaso,Version);	
+/*|__________________________________________________________________________________________________________________________________________________________________________________________________________|*/
+
+
+/*|========================================================================================INFORMACION PARA EL MODELO 3======================================================================================|*/
+RT_Mod3 						from DBRead(DRP,				/*Recursos termicos con modelo 3*/					
+								"SELECT DISTINCT R.NOMBRE FROM \
+  								(SELECT NOMBRE, CODRECURSO FROM IDEAL.DRPT_RECURSOGENERACION_BAS  WHERE CODCASO=? AND VERSION=? AND ESTADO='ACTIVO' AND DESPACHOCENTRAL='S') R, \
+  								(SELECT CODRECURSO, CONFIGURACION, COMBUSTIBLE, VALORA, VALORB, VALORUR, VALORC, VALORD, VALORDR FROM IDEAL.DRPT_MODRAMPSIMPLE_BAS WHERE CODCASO=? AND VERSION=? AND VALORA>0) N \
+								WHERE R.CODRECURSO=N.CODRECURSO")
+								(CodCaso,Version,CodCaso,Version);
+
+Mod3_ABCD						from DBRead(DRP,				/*Detalle de los parametros del modelo 3 para cada combinacion Recurso-Configuracion*/					
+								"SELECT CONCAT(CONCAT(CONCAT(CONCAT(R.NOMBRE,'_'),CAST(N.CONFIGURACION AS VARCHAR(3))),'_'),N.COMBUSTIBLE) AS CONF, N.VALORA, N.VALORB, N.VALORUR, N.VALORC,N.VALORD, N.VALORDR FROM \
+  								(SELECT NOMBRE, CODRECURSO FROM IDEAL.DRPT_RECURSOGENERACION_BAS  WHERE CODCASO=? AND VERSION=? AND ESTADO='ACTIVO' AND DESPACHOCENTRAL='S') R, \
+  								(SELECT CODRECURSO, CONFIGURACION, COMBUSTIBLE, VALORA, VALORB, VALORUR, VALORC, VALORD, VALORDR FROM IDEAL.DRPT_MODRAMPSIMPLE_BAS WHERE CODCASO=? AND VERSION=? AND VALORA>0) N \
+								WHERE R.CODRECURSO=N.CODRECURSO")
+								(CodCaso,Version,CodCaso,Version);
+/*|__________________________________________________________________________________________________________________________________________________________________________________________________________|*/ 
+
+
+/*|=================================================================================INFORMACION PARA EL MODELO DE CARGA ESTABLE==============================================================================|*/
+RT_ModCE 						from DBRead(DRP,				/*Recursos termicos con modelo de carga estable*/					
+								"SELECT DISTINCT R.NOMBRE FROM \
+  								(SELECT NOMBRE, CODRECURSO FROM IDEAL.DRPT_RECURSOGENERACION_BAS  WHERE CODCASO=? AND VERSION=? AND ESTADO='ACTIVO' AND DESPACHOCENTRAL='S') R, \
+  								(SELECT CODRECURSO, CONFIGURACION, COMBUSTIBLE, MAXVARCARGAEST, TIEMPOCARGAEST FROM IDEAL.DRPT_MODRAMPMINTECNICO_BAS WHERE CODCASO=? AND VERSION=? AND MAXVARCARGAEST>0) N \
+								WHERE R.CODRECURSO=N.CODRECURSO")
+								(CodCaso,Version,CodCaso,Version);
+								
+Dat_ModCE						from DBRead(DRP,				/*Detalle de los parametros del modelo de carga estable para cada combinacion Recurso-Configuracion*/					
+								"SELECT CONCAT(CONCAT(CONCAT(CONCAT(R.NOMBRE,'_'),CAST(N.CONFIGURACION AS VARCHAR(3))),'_'),N.COMBUSTIBLE) AS CONF, N.MAXVARCARGAEST, N.TIEMPOCARGAEST FROM \
+  								(SELECT NOMBRE, CODRECURSO FROM IDEAL.DRPT_RECURSOGENERACION_BAS  WHERE CODCASO=? AND VERSION=? AND ESTADO='ACTIVO' AND DESPACHOCENTRAL='S') R, \
+  								(SELECT CODRECURSO, CONFIGURACION, COMBUSTIBLE, MAXVARCARGAEST, TIEMPOCARGAEST FROM IDEAL.DRPT_MODRAMPMINTECNICO_BAS WHERE CODCASO=? AND VERSION=? AND MAXVARCARGAEST>0) N \
+								WHERE R.CODRECURSO=N.CODRECURSO")
+								(CodCaso,Version,CodCaso,Version);
+/*|__________________________________________________________________________________________________________________________________________________________________________________________________________|*/
+
+
+/*|========================================================================INFORMACION PARA EL MODELO DE RAMPAS DE RECURSOS HIDRAULICOS======================================================================|*/
+Dat_RH_UR 						from DBRead(DRP,				/*Detalle de los intervalos para subir para los recursos hidraulicos con rampas*/					
+								"SELECT R.NOMBRE, CONCAT(CONCAT(CONCAT(CONCAT(R.NOMBRE,'_UR_'),N.MINFRIO),'_'),N.MAXFRIO) AS INTERVALO, \
+								N.MINFRIO AS MINIMO, N.MAXFRIO AS MAXIMO, N.URFRIO AS UR FROM \
+  								(SELECT NOMBRE, CODRECURSO FROM IDEAL.DRPT_RECURSOGENERACION_BAS  WHERE CODCASO=? AND VERSION=? AND ESTADO='ACTIVO' AND DESPACHOCENTRAL='S') R, \
+  								(SELECT CODRECURSO, MINFRIO, MAXFRIO, URFRIO  FROM IDEAL.DRPT_MODRAMPSUBMODELOS_BAS  WHERE CODCASO=? AND VERSION=? AND SUBMODELO='TC' AND COMBUSTIBLE LIKE '%AGU%') N \
+								WHERE N.CODRECURSO=R.CODRECURSO")
+								(CodCaso,Version,CodCaso,Version);
+
+Dat_RH_DR 						from DBRead(DRP,				/*Detalle de los intervalos para bajar para los recursos hidraulicos con rampas*/					
+								"SELECT R.NOMBRE, CONCAT(CONCAT(CONCAT(CONCAT(R.NOMBRE,'_DR_'),N.MINFRIO),'_'),N.MAXFRIO) AS INTERVALO, \
+								N.MINFRIO AS MINIMO, N.MAXFRIO AS MAXIMO, N.URFRIO AS DR FROM \
+  								(SELECT NOMBRE, CODRECURSO FROM IDEAL.DRPT_RECURSOGENERACION_BAS  WHERE CODCASO=? AND VERSION=? AND ESTADO='ACTIVO' AND DESPACHOCENTRAL='S') R, \
+  								(SELECT CODRECURSO, MINFRIO, MAXFRIO, URFRIO  FROM IDEAL.DRPT_MODRAMPSUBMODELOS_BAS  WHERE CODCASO=? AND VERSION=? AND SUBMODELO='TD' AND COMBUSTIBLE LIKE '%AGU%') N \
+								WHERE N.CODRECURSO=R.CODRECURSO")
+								(CodCaso,Version,CodCaso,Version);
+
+IntervRH_UR	 					from DBRead(DRP,				/*Etiqueta de los intervalos para subir para los recursos hidraulicos con rampas*/					
+								"SELECT DISTINCT CONCAT(CONCAT(CONCAT(CONCAT(R.NOMBRE,'_UR_'),N.MINFRIO),'_'),N.MAXFRIO) AS INTERVALO FROM \
+  								(SELECT NOMBRE, CODRECURSO FROM IDEAL.DRPT_RECURSOGENERACION_BAS  WHERE CODCASO=? AND VERSION=? AND ESTADO='ACTIVO' AND DESPACHOCENTRAL='S') R, \
+  								(SELECT CODRECURSO, MINFRIO, MAXFRIO, URFRIO  FROM IDEAL.DRPT_MODRAMPSUBMODELOS_BAS  WHERE CODCASO=? AND VERSION=? AND SUBMODELO='TC' AND COMBUSTIBLE LIKE '%AGU%') N \
+								WHERE N.CODRECURSO=R.CODRECURSO")
+								(CodCaso,Version,CodCaso,Version);
+
+IntervRH_DR	 					from DBRead(DRP,				/*Etiqueta de los intervalos para subir para los recursos hidraulicos con rampas*/					
+								"SELECT DISTINCT CONCAT(CONCAT(CONCAT(CONCAT(R.NOMBRE,'_DR_'),N.MINFRIO),'_'),N.MAXFRIO) AS INTERVALO FROM \
+  								(SELECT NOMBRE, CODRECURSO FROM IDEAL.DRPT_RECURSOGENERACION_BAS  WHERE CODCASO=? AND VERSION=? AND ESTADO='ACTIVO' AND DESPACHOCENTRAL='S') R, \
+  								(SELECT CODRECURSO, MINFRIO, MAXFRIO, URFRIO  FROM IDEAL.DRPT_MODRAMPSUBMODELOS_BAS  WHERE CODCASO=? AND VERSION=? AND SUBMODELO='TD' AND COMBUSTIBLE LIKE '%AGU%') N \
+								WHERE N.CODRECURSO=R.CODRECURSO")
+								(CodCaso,Version,CodCaso,Version);		
+								
+GenRecH_t_1 					from DBRead (DRP,			/*Generacionn en el periodo t-1 para los recursos hidraulico con rampas*/
+								"SELECT R.NOMBRE, GPINI1 FROM \
+								 (SELECT CODRECURSO, GPINI1 FROM IDEAL.DRPT_CONDICINIXUNI_BAS WHERE CODCASO=? AND VERSION=?  AND PERIODO=? AND TIPOCOND='M') CI, \
+								 (SELECT NOMBRE, CODRECURSO FROM IDEAL.DRPT_RECURSOGENERACION_BAS WHERE ESTADO='ACTIVO' AND CODCASO=? AND VERSION=? AND DESPACHOCENTRAL='S' AND TIPO LIKE 'H%') R \
+								WHERE R.CODRECURSO=CI.CODRECURSO")(CodCaso,Version,Pini,CodCaso,Version);  												
+/*|____________________________________________________________________________________________________________________________________________________________________________________________________________|*/
+
+
+/*|====================================================================================INFORMACION PARA LAS ZONAS DE SEGURIDAD=================================================================================|*/
+Zonas_UndMinimas 				from DBRead(DRP,				/*Conjunto de zonas de unidades minimas activas para el problema*/					
+								"SELECT  DISTINCT Zn.NOMBRE FROM IDEAL.DRPT_ZONAS_BAS Zn, IDEAL.DRPT_TERMINOVALORES_BAS T, IDEAL.DRPT_NUMEROUNIDADZONA_BAS Zv WHERE Zn.CODCASO=? AND T.CODCASO=Zn.CODCASO AND Zv.CODCASO=Zn.CODCASO \
+								AND Zn.VERSION=? AND T.VERSION=Zn.VERSION AND Zv.VERSION=Zn.VERSION AND Zn.ESTADO='ACTIVO' AND Zn.CODNUMERO=T.SUBINDICES AND T.CODTERMINO='ZSGSNUFG' AND T.VALOR=1 \
+								AND Zv.CODZONA=Zn.CODZONA AND Zv.PERIODO<=? ")
+								(CodCaso,Version,Pfin);		
+								
+Valor_Z_UndMin					from DBRead(DRP,				/*Valor que se debe cumplir para las unidades minimas en cada periodo*/					
+								"SELECT  Zn.NOMBRE, Zv.PERIODO, zV.valor FROM IDEAL.DRPT_ZONAS_BAS Zn, IDEAL.DRPT_TERMINOVALORES_BAS T, IDEAL.DRPT_NUMEROUNIDADZONA_BAS Zv WHERE Zn.CODCASO=? AND T.CODCASO=Zn.CODCASO \
+								AND Zv.CODCASO=Zn.CODCASO AND Zn.VERSION=? AND T.VERSION=Zn.VERSION AND Zv.VERSION=Zn.VERSION AND Zn.ESTADO='ACTIVO' AND Zn.CODNUMERO=T.SUBINDICES AND T.CODTERMINO='ZSGSNUFG' \
+								AND T.VALOR=1 AND Zv.CODZONA=Zn.CODZONA	AND Zv.PERIODO<=?")
+								(CodCaso,Version,Pfin);			
+								
+Pesos_Z_UndMin					from DBRead(DRP,				/*Peso que cada unidad tiene en una zona de unidades minimas*/					
+								"SELECT Zn.NOMBRE ZONA, Un.NOMBRE UNIDAD, Zv.PERIODO, Zv.VALOR AS PESO FROM IDEAL.DRPT_ZONAS_BAS Zn, IDEAL.DRPT_TERMINOVALORES_BAS T, IDEAL.DRPT_FACTOREQUIVALENCIAZN_BAS Zv, IDEAL.DRPT_UNIDADGENERACION_BAS Un \
+								WHERE Zn.CODCASO=? AND T.CODCASO=Zn.CODCASO AND Zv.CODCASO=Zn.CODCASO AND Un.CODCASO=Zn.CODCASO AND Zn.VERSION=? AND T.VERSION=Zn.VERSION AND Zv.VERSION=Zn.VERSION \
+								AND Un.VERSION=Zn.VERSION AND Zn.ESTADO='ACTIVO' AND Zn.CODNUMERO=T.SUBINDICES AND T.CODTERMINO='ZSGSNUFG' AND T.VALOR=1 AND Zv.CODZONA=Zn.CODZONA  AND Un.CODUNIDAD=Zv.CODUNIDAD \
+								AND UN.ESTADO='ACTIVO' AND Zv.PERIODO<=? ")
+								(CodCaso,Version,Pfin);			
+
+Bandera_Seg						from DBRead(DRP,				/*Bandera de seguridad de las unidades, es cero si la unidad no puede cubrir seguridad*/
+           						"SELECT U.NOMBRE, P.PERIODO, CASE WHEN  P.BANDERA IN ('A') THEN 0 ELSE 1 END  PRUEBAS FROM IDEAL.DRPT_PRUEBASUNIDAD_BAS P, IDEAL.DRPT_UNIDADGENERACION_BAS U WHERE P.CODCASO=? \
+           						AND U.CODCASO=P.CODCASO AND P.VERSION=? AND U.VERSION=P.VERSION AND U.CODUNIDAD=P.CODUNIDAD AND U.ESTADO='ACTIVO' AND P.PERIODO<=?")
+            					(CodCaso,Version,Pfin);	
+            					
+Zonas_MWMinimos					from DBRead(DRP,				/*Conjunto de zonas de generacion minima activas para el problema*/
+       							"SELECT   DISTINCT Zn.NOMBRE FROM IDEAL.DRPT_ZONAS_BAS Zn, IDEAL.DRPT_TERMINOVALORES_BAS T, IDEAL.DRPT_MAXMINGENERACIONZONA_BAS Zv WHERE Zn.CODCASO=? AND T.CODCASO=Zn.CODCASO \
+       							AND Zv.CODCASO=Zn.CODCASO AND Zn.VERSION=? AND T.VERSION=Zn.VERSION AND Zv.VERSION=Zn.VERSION AND Zn.ESTADO='ACTIVO' AND Zn.CODNUMERO=T.SUBINDICES \
+       							AND T.CODTERMINO='ZSGSMWPRMNFG' AND T.VALOR=1 AND Zv.CODZONA=Zn.CODZONA AND Zv.PERIODO<=? ")
+       							(CodCaso,Version,Pfin);		
+
+Valor_Z_MWMin					from DBRead(DRP,				/*Valor que se debe cumplir para la generacion minima en cada periodo*/					
+								"SELECT Zn.NOMBRE, Zv.PERIODO, Zv.VALMIN FROM IDEAL.DRPT_ZONAS_BAS Zn, IDEAL.DRPT_TERMINOVALORES_BAS T, IDEAL.DRPT_MAXMINGENERACIONZONA_BAS Zv WHERE Zn.CODCASO=? AND T.CODCASO=Zn.CODCASO \
+								AND Zv.CODCASO=Zn.CODCASO AND Zn.VERSION=? AND T.VERSION=Zn.VERSION AND Zv.VERSION=Zn.VERSION AND Zn.ESTADO='ACTIVO' AND Zn.CODNUMERO=T.SUBINDICES AND T.CODTERMINO='ZSGSMWPRMNFG'\
+								AND T.VALOR=1 AND Zv.CODZONA=Zn.CODZONA  AND Zv.PERIODO<=?")
+								(CodCaso,Version,Pfin);			
+								
+Info_Z_MWMin					from DBRead(DRP,				/*Detalle de las unidades que pertenecen a la zona de seguridad de generacion minima*/					
+								"SELECT   DISTINCT Zn.NOMBRE ZONA,Un.NOMBRE UNIDAD FROM IDEAL.DRPT_ZONAS_BAS Zn, IDEAL.DRPT_TERMINOVALORES_BAS T, IDEAL.DRPT_FACTOREQUIVALENCIAZN_BAS Zv, IDEAL.DRPT_UNIDADGENERACION_BAS Un WHERE Zn.CODCASO=? \
+								AND T.CODCASO=Zn.CODCASO AND Zv.CODCASO=Zn.CODCASO AND Un.CODCASO=Zn.CODCASO AND Zn.VERSION=? AND T.VERSION=Zn.VERSION AND Zv.VERSION=Zn.VERSION AND Un.VERSION=Zn.VERSION \
+								AND Zn.ESTADO='ACTIVO' AND Zn.CODNUMERO=T.SUBINDICES AND T.CODTERMINO='ZSGSMWPRMNFG' AND T.VALOR=1 AND Zv.CODZONA=Zn.CODZONA AND Zv.PERIODO=1 AND Un.CODUNIDAD=Zv.CODUNIDAD \
+								AND Un.ESTADO='ACTIVO'")
+								(CodCaso,Version);	 
+						
+Zonas_MWMaximos					from DBRead(DRP,				/*Conjunto de zonas de generacion maxima activas para el problema*/
+       							"SELECT DISTINCT Zn.NOMBRE FROM IDEAL.DRPT_ZONAS_BAS Zn, IDEAL.DRPT_TERMINOVALORES_BAS T, IDEAL.DRPT_MAXMINGENERACIONZONA_BAS Zv WHERE Zn.CODCASO=? AND   T.CODCASO=Zn.CODCASO AND Zv.CODCASO=Zn.CODCASO \
+       							AND Zn.VERSION=? AND T.VERSION=Zn.VERSION AND Zv.VERSION=Zn.VERSION AND Zn.ESTADO='ACTIVO' AND Zn.CODNUMERO=T.SUBINDICES AND T.CODTERMINO='ZSGSMWPRMXFG' AND T.VALOR=1 \
+       							AND Zv.CODZONA=Zn.CODZONA AND Zv.PERIODO<=?")
+       							(CodCaso,Version,Pfin);		
+								
+BanderaAGCZona					from DBRead(DRP,				/*Bandera que indica si se considera el AGC en las zonas de MW Max*/					
+								"SELECT Z.NOMBRE, TO_NUMBER(T1.VALOR) FROM \
+								(SELECT NOMBRE, CODNUMERO FROM IDEAL.DRPT_ZONAS_BAS WHERE CODCASO=? AND VERSION=? AND ESTADO='ACTIVO') Z, \
+								(SELECT SUBINDICES, VALOR FROM IDEAL.DRPT_TERMINOVALORES_BAS WHERE CODCASO=? AND VERSION=? AND CODTERMINO IN('ZSAGCFG')) T1, \
+								(SELECT SUBINDICES, VALOR FROM IDEAL.DRPT_TERMINOVALORES_BAS WHERE CODCASO=? AND VERSION=? AND CODTERMINO IN('ZSGSMWPRMXFG')) T2 \
+								WHERE Z.CODNUMERO=T1.SUBINDICES AND Z.CODNUMERO=T2.SUBINDICES AND TO_NUMBER(T2.VALOR)=1 ")
+								(CodCaso,Version,CodCaso,Version,CodCaso,Version);       							
+
+Valor_Z_MWMax					from DBRead(DRP,				/*Valor que se debe cumplir para la generacion maxima en cada periodo*/					
+								"SELECT Zn.NOMBRE,Zv.PERIODO, Zv.VALMAX FROM IDEAL.DRPT_ZONAS_BAS Zn, IDEAL.DRPT_TERMINOVALORES_BAS T, IDEAL.DRPT_MAXMINGENERACIONZONA_BAS Zv WHERE Zn.CODCASO=? AND   T.CODCASO=Zn.CODCASO \
+								AND Zv.CODCASO=Zn.CODCASO AND Zn.VERSION=? AND T.VERSION=Zn.VERSION AND Zv.VERSION=Zn.VERSION AND Zn.ESTADO='ACTIVO' AND Zn.CODNUMERO=T.SUBINDICES AND T.CODTERMINO='ZSGSMWPRMXFG'\
+								AND T.VALOR=1 AND Zv.CODZONA=Zn.CODZONA AND Zv.PERIODO<=?")
+								(CodCaso,Version,Pfin);			
+								
+Info_Z_MWMax					from DBRead(DRP,				/*Detalle de las unidades que pertenecen a la zona de seguridad de generacion maxima*/					
+								"SELECT Zn.NOMBRE ZONA, Un.NOMBRE UNIDAD FROM IDEAL.DRPT_ZONAS_BAS Zn, IDEAL.DRPT_TERMINOVALORES_BAS T, IDEAL.DRPT_FACTOREQUIVALENCIAZN_BAS Zv, IDEAL.DRPT_UNIDADGENERACION_BAS Un \
+								WHERE Zn.CODCASO=? AND T.CODCASO=Zn.CODCASO AND Zv.CODCASO=Zn.CODCASO AND Un.CODCASO=Zn.CODCASO AND Zn.VERSION=? AND T.VERSION=Zn.VERSION AND Zv.VERSION=Zn.VERSION \
+								AND Un.VERSION=Zn.VERSION AND Zn.ESTADO='ACTIVO' AND Zn.CODNUMERO=T.SUBINDICES AND T.CODTERMINO='ZSGSMWPRMXFG' AND T.VALOR=1 AND Zv.CODZONA=Zn.CODZONA AND Zv.PERIODO=1 \
+								AND Un.CODUNIDAD=Zv.CODUNIDAD AND Un.ESTADO='ACTIVO'")
+								(CodCaso,Version);																						
+/*|____________________________________________________________________________________________________________________________________________________________________________________________________________|*/
+
+
+
+/*::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::*/
+/*:::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::   POSTPROCESO - ESCRITURA DE RESULTADOS   ::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::*/
+/*::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::*/
+
+/*|===============================================================ESCRITURA DE INFORMACION DE LA GENERACION DE CADA RECURSO PARA PERIODO>=PINI===============================================================|*/
+DBExecute(DRPe,SQL_BorrarGen); 
+DespachoRecursos to DBUpdate(DRPe,"INSERT INTO IDEAL.DRPT_GENERACIONXRECURSO_RES(CODCASO,VERSION,CODRECURSO,FECHA,TIPO,PERIODO,VALOR) VALUES(:1,:2,:3,:4,:5,:6,ROUND(:7,6))"); 
+DBExecute(DRPe,SQL_BorrarGenA); 
+DespachoRecursos to DBUpdate(DRPe,"INSERT INTO IDEAL.DRPT_GENERACIONXRECURSO_AREAS(CODCASO,VERSION,CODRECURSO,FECHA,TIPO,PERIODO,VALOR) VALUES(:1,:2,:3,:4,:5,:6,ROUND(:7,6))"); 
+/*|__________________________________________________________________________________________________________________________________________________________________________________________________________|*/
+
+
+/*|================================================================ESCRITURA DE INFORMACION DE LA GENERACION DE CADA UNIDAD PARA PERIODO>=PINI===============================================================|*/
+DBExecute(DRPe,SQL_BorrarGenU); 
+DespachoUnidades to DBUpdate(DRPe,"INSERT INTO IDEAL.DRPT_GENERACIONSPUNIDAD_RES(CODCASO,VERSION,CODUNIDAD,FECHA,TIPO,PERIODO,VALOR) VALUES(:1,:2,:3,:4,:5,:6,ROUND(:7,6))"); 
+/*|__________________________________________________________________________________________________________________________________________________________________________________________________________|*/
+
+
+/*|==================================================================ESCRITURA DE INFORMACION DEL INTERCAMBIO DE CADA AREA PARA PERIODO>=PINI================================================================|*/
+DBExecute(DRPe,SQL_BorrarIntA); 
+Info_IntA to DBUpdate(DRPe,"INSERT INTO IDEAL.DRPT_INTERCAMBIOAREA_RES(CODCASO,VERSION,CODAREA,FECHA,TIPO,PERIODO,VALINTERCAMBIO) VALUES(:1,:2,:3,:4,:5,:6,ROUND(:7,6))"); 
+/*|__________________________________________________________________________________________________________________________________________________________________________________________________________|*/
+
+
+/*|================================================================ESCRITURA DE INFORMACION DEL INTERCAMBIO DE CADA SUBAREA PARA PERIODO>=PINI===============================================================|*/
+DBExecute(DRPe,SQL_BorrarIntSa); 
+Info_IntSa to DBUpdate(DRPe,"INSERT INTO IDEAL.DRPT_INTERCAMBIOGLOBALSAR_RES(CODCASO,VERSION,CODSUBAREA,FECHA,TIPO,PERIODO,VALOR) VALUES(:1,:2,:3,:4,:5,:6,ROUND(:7,6))"); 
+/*|__________________________________________________________________________________________________________________________________________________________________________________________________________|*/	
+
+
+/*|======================================================================ESCRITURA DE INFORMACION DEL RACIONAMIENTO PARA PERIODO>=PINI=======================================================================|*/
+DBExecute(DRPe,SQL_BorrarRac); 
+RacionaSubArea to DBUpdate(DRPe,"INSERT INTO IDEAL.DRPT_RACIONAMIENTOSUBAREA_RES(CODCASO,VERSION,CODSUBAREA,FECHA,TIPO,PERIODO,VALOR) VALUES(:1,:2,:3,:4,:5,:6,:7)"); 
+/*|__________________________________________________________________________________________________________________________________________________________________________________________________________|*/	
+
+
+/*|==========================================ESCRITURA DE INFORMACION DE LOS RECURSOS QUE TUVIERON ARRANQUE RESPECTO A LA GENERACION MAYOR A CERO PARA PERIODO>=PINI=========================================|*/
+DBExecute(DRPe,SQL_BorrarArr); 
+Info_Arr to DBUpdate(DRPe,	"INSERT INTO IDEAL.DRPT_DATOSALIDA_RES(CODCASO,VERSION,CODVARIABLE,FECHA,TIPO,CODSUBINDICE,VALOR,SUBINDICE1,SUBINDICE2,SUBINDICE3,SUBINDICE4,SUBINDICE5,SUBINDICE6,SUBINDICE7) VALUES(:1,:2,:3,:4,:5,:6,:7,:8,:9,:10,:11,:12,:13,:14)");
+/*|__________________________________________________________________________________________________________________________________________________________________________________________________________|*/	
+
+
+/*|============================================ESCRITURA DE INFORMACION DE LOS RECURSOS QUE TUVIERON ARRANQUE RESPECTO A LA GENERACION EN FIRME PARA PERIODO>=PINI===========================================|*/
+DBExecute(DRPe,SQL_BorrarArrF); 
+Info_ArrF to DBUpdate(DRPe,	"INSERT INTO IDEAL.DRPT_DATOSALIDA_RES(CODCASO,VERSION,CODVARIABLE,FECHA,TIPO,CODSUBINDICE,VALOR,SUBINDICE1,SUBINDICE2,SUBINDICE3,SUBINDICE4,SUBINDICE5,SUBINDICE6,SUBINDICE7) VALUES(:1,:2,:3,:4,:5,:6,:7,:8,:9,:10,:11,:12,:13,:14)");
+/*|__________________________________________________________________________________________________________________________________________________________________________________________________________|*/
+
+
+/*|===================================================================ESCRITURA DE INFORMACION DEL ONOFF DE LOS RECURSOS  PARA PERIODO>=PINI=================================================================|*/
+DBExecute(DRPe,SQL_BorrarOnR); 
+Info_OnRT to DBUpdate(DRPe,	"INSERT INTO IDEAL.DRPT_DATOSALIDA_RES(CODCASO,VERSION,CODVARIABLE,FECHA,TIPO,CODSUBINDICE,VALOR,SUBINDICE1,SUBINDICE2,SUBINDICE3,SUBINDICE4,SUBINDICE5,SUBINDICE6,SUBINDICE7) VALUES(:1,:2,:3,:4,:5,:6,:7,:8,:9,:10,:11,:12,:13,:14)");
+Info_OnRH to DBUpdate(DRPe,	"INSERT INTO IDEAL.DRPT_DATOSALIDA_RES(CODCASO,VERSION,CODVARIABLE,FECHA,TIPO,CODSUBINDICE,VALOR,SUBINDICE1,SUBINDICE2,SUBINDICE3,SUBINDICE4,SUBINDICE5,SUBINDICE6,SUBINDICE7) VALUES(:1,:2,:3,:4,:5,:6,:7,:8,:9,:10,:11,:12,:13,:14)");							
+/*|__________________________________________________________________________________________________________________________________________________________________________________________________________|*/
+
+
+/*|===================================================================ESCRITURA DE INFORMACION DEL ONOFF DE LAS UNIDADES  PARA PERIODO>=PINI=================================================================|*/
+DBExecute(DRPe,SQL_BorrarOnU);
+Info_OnUT to DBUpdate(DRPe,	"INSERT INTO IDEAL.DRPT_DATOSALIDA_RES(CODCASO,VERSION,CODVARIABLE,FECHA,TIPO,CODSUBINDICE,VALOR,SUBINDICE1,SUBINDICE2,SUBINDICE3,SUBINDICE4,SUBINDICE5,SUBINDICE6,SUBINDICE7) VALUES(:1,:2,:3,:4,:5,:6,:7,:8,:9,:10,:11,:12,:13,:14)");	
+Info_OnUH to DBUpdate(DRPe,	"INSERT INTO IDEAL.DRPT_DATOSALIDA_RES(CODCASO,VERSION,CODVARIABLE,FECHA,TIPO,CODSUBINDICE,VALOR,SUBINDICE1,SUBINDICE2,SUBINDICE3,SUBINDICE4,SUBINDICE5,SUBINDICE6,SUBINDICE7) VALUES(:1,:2,:3,:4,:5,:6,:7,:8,:9,:10,:11,:12,:13,:14)");	
+Info_OnUm to DBUpdate(DRPe,	"INSERT INTO IDEAL.DRPT_DATOSALIDA_RES(CODCASO,VERSION,CODVARIABLE,FECHA,TIPO,CODSUBINDICE,VALOR,SUBINDICE1,SUBINDICE2,SUBINDICE3,SUBINDICE4,SUBINDICE5,SUBINDICE6,SUBINDICE7) VALUES(:1,:2,:3,:4,:5,:6,:7,:8,:9,:10,:11,:12,:13,:14)");	
+/*|__________________________________________________________________________________________________________________________________________________________________________________________________________|*/	
+
+
+/*|=============================================================ESCRITURA DE INFORMACION DEL TIEMPO EN LINEA EN CADA PERIODO PARA UNIDADES TERMICAS==========================================================|*/
+DBExecute(DRPe,SQL_BorrarTLU);
+Info_TLU to DBUpdate(DRPe,	"INSERT INTO IDEAL.DRPT_DATOSALIDA_RES(CODCASO,VERSION,CODVARIABLE,FECHA,TIPO,CODSUBINDICE,VALOR,SUBINDICE1,SUBINDICE2,SUBINDICE3,SUBINDICE4,SUBINDICE5,SUBINDICE6,SUBINDICE7) VALUES(:1,:2,:3,:4,:5,:6,:7,:8,:9,:10,:11,:12,:13,:14)");	
+/*|__________________________________________________________________________________________________________________________________________________________________________________________________________|*/
+
+
+/*|==========================================================ESCRITURA DE INFORMACION DEL TIEMPO FUERA DE LINEA EN CADA PERIODO PARA UNIDADES TERMICAS=======================================================|*/
+DBExecute(DRPe,SQL_BorrarTFLU);
+Info_TFLU to DBUpdate(DRPe,	"INSERT INTO IDEAL.DRPT_DATOSALIDA_RES(CODCASO,VERSION,CODVARIABLE,FECHA,TIPO,CODSUBINDICE,VALOR,SUBINDICE1,SUBINDICE2,SUBINDICE3,SUBINDICE4,SUBINDICE5,SUBINDICE6,SUBINDICE7) VALUES(:1,:2,:3,:4,:5,:6,:7,:8,:9,:10,:11,:12,:13,:14)");	
+/*|__________________________________________________________________________________________________________________________________________________________________________________________________________|*/
+
+
+/*|=============================================================================ESCRITURA DE INFORMACION PARA LA FUNCION OBJETIVO=============================================================================|*/	
+DBExecute(DRPe,SQL_BorrarFO);
+Info_FOp to DBUpdate(DRPe,	"INSERT INTO IDEAL.DRPT_DATOSALIDA_RES(CODCASO,VERSION,CODVARIABLE,FECHA,TIPO,CODSUBINDICE,VALOR,SUBINDICE1,SUBINDICE2,SUBINDICE3,SUBINDICE4,SUBINDICE5,SUBINDICE6,SUBINDICE7) VALUES(:1,:2,:3,:4,:5,:6,:7,:8,:9,:10,:11,:12,:13,:14)");	
+Info_FOd to DBUpdate(DRPe,	"INSERT INTO IDEAL.DRPT_DATOSALIDA_RES(CODCASO,VERSION,CODVARIABLE,FECHA,TIPO,CODSUBINDICE,VALOR,SUBINDICE1,SUBINDICE2,SUBINDICE3,SUBINDICE4,SUBINDICE5,SUBINDICE6,SUBINDICE7) VALUES(:1,:2,:3,:4,:5,:6,:7,:8,:9,:10,:11,:12,:13,:14)");	
+/*|__________________________________________________________________________________________________________________________________________________________________________________________________________|*/
+
+
+/*|=============================================================================ESCRITURA DE INFORMACION PARA CONDICIONES FINALES=============================================================================|*/	
+DBExecute(DRPe,SQL_BorrarCF);
+Info_CF to DBUpdate(DRPe,"INSERT INTO IDEAL.DRPT_CONDICINIXUNI_BAS(CODCASO,VERSION,FECHA,CODRECURSO,PERIODO,TIPOCOND,DISPPINI1,GPINI1,GPINI2,CONFPINI1,ESTADOPINI1,BLOQUESPINI1,CONFENTRADA,CONFSALIDA,TAPUBLICAR,TDISPPINI1,NARRANQUESPINI1,TCEPENDIENTE,TL,TFL) \
+						VALUES(:1,:2,:3,:4,:5,:6,NULL,NULL,NULL,NULL,:7,:8,:9,:10,:11,:12,:13,:14,:15,:16)");
+/*|__________________________________________________________________________________________________________________________________________________________________________________________________________|*/
+
+/*|=========================================================================ESCRITURA DE INFORMACI�N PARA CARGA ESTABLE EN EL PERIODO=========================================================================|*/
+DBExecute(DRPe,SQL_BorrarCE); 
+Info_CE to DBUpdate(DRPe,	"INSERT INTO IDEAL.DRPT_DATOSALIDA_RES(CODCASO,VERSION,CODVARIABLE,FECHA,TIPO,CODSUBINDICE,VALOR,SUBINDICE1,SUBINDICE2,SUBINDICE3,SUBINDICE4,SUBINDICE5,SUBINDICE6,SUBINDICE7) VALUES(:1,:2,:3,:4,:5,:6,:7,:8,:9,:10,:11,:12,:13,:14)");	
+/*|__________________________________________________________________________________________________________________________________________________________________________________________________________|*/
+
+/*|=====================================================================================ESCRITURA DE INFORMACION DEL MODELO 1================================================================================|*/
+DBExecute(DRPe,SQL_BorrarMod1); 
+Info_Mod1 to DBUpdate(DRPe,"INSERT INTO IDEAL.DRPT_RAMPASUNIDAD_BAS(CODCASO,VERSION,CODUNIDAD,FECHA,PERIODO,VALOR) VALUES(:1,:2,:3,:4,:5,ROUND(:6,6))"); 
+/*|__________________________________________________________________________________________________________________________________________________________________________________________________________|*/

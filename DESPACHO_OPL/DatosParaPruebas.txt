@@ -1,0 +1,20 @@
+SELECT
+    codcaso,
+    version,
+    codrecurso,
+    fecha,
+    tipo,
+    periodo,
+    valor
+FROM
+    ideal.drpt_generacionxrecurso_res
+
+WHERE CODCASO='DI0000003672' AND VERSION='V1'; 
+
+{"fileId":"6",
+"jobMRID":"121226",
+"codCaso":"DI0000003672",
+"proceso":"V1",
+"fechaOperativa":"2019-11-18"}
+
+

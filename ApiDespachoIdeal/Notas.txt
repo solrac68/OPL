@@ -1,0 +1,2 @@
+https://www.youtube.com/results?search_query=Host+a+web+api+.nETcORE+3.0+in+a+windows+services
+https://docs.microsoft.com/en-us/aspnet/core/tutorials/first-web-api?view=aspnetcore-3.0&tabs=visual-studio
