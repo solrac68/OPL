@@ -21,6 +21,7 @@ namespace WorkerOpl
         public string DATA { get; set; }
         public string DATADIR { get; set; }
 
+
         private void cambio(String codi, String codf, String veri, String verf)
         {
             string text = System.IO.File.ReadAllText(String.Format("{0}/{1}", DATADIR, DATA));

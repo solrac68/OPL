@@ -14,11 +14,11 @@ DBConnection DRPe("oracle11","TRABAJO/DRPTRB02@RDSPCND8");
 //DBConnection DRPe("oracle11","CHINCAPIE/Polonia47*@RDSPCND8");
 
 
+//CodCaso="DI0000003672";
 CodCaso="<codcaso>";
-//CodCaso="<codcaso>";
             					
-Version="<version>";
-//Version="<version>";												/*Version del caso de analisis en DRP*/
+//Version="<version>";
+Version="<version>";												/*Version del caso de analisis en DRP*/
 
 Esquema="IDEAL";												/*Esquema del caso de analisis en DRP*/
 

@@ -247,12 +247,17 @@ main{												/*El comando Main indica que se va a realizar un control de flu
 		writeln("<<<< Inicia la escritura en base de datos           >>>>");
 		MargAUX.postProcess(); 									/*Se ejecuta el modelo auxiliar para la escritura de la información del recurso marginal*/
 		ProgRecModel.postProcess();											/*Se ejecuta el postproceso descrito en el obejto ProgRecModel, el posproceso corresponde al definido en el archivo ProgRec.mod*/		
-		writeln("<<<< Finaliza la escritura en base de datos         >>>>");	
+		writeln("<<<< Finaliza la escritura en base de datos         >>>>");
+		writeln("ESTADO_EJECUCION=OK");
+		//writeln("ESTADO_EJECUCION=OK, Costo del Despacho: " + ProgRecModel.F_Despacho);
+		//writeln("ESTADO_EJECUCION=OK, Costo del Despacho Ini: " + ProgRecModel.CostoDespachoIni);
+
+		
+
 	/*|________________________________________________________________________________________________________________________________________________________________________________________________________________________________________________________|*/
 		var Solucion;	
  			Solucion="Se encontró una solución óptima para el siguiente caso: \n \n"+ProgRecModel.CodCaso+" "+ProgRecModel.Descripcion+"\nCosto del Despacho:  $ "+(ProgRecModel.F_Despacho+ProgRecModel.CostoDespachoIni);			
- 			
-		
+ 		
 		var EstadoMod;
 			EstadoMod="1";									
 		
@@ -278,7 +283,10 @@ main{												/*El comando Main indica que se va a realizar un control de flu
  			ArchivoFinalizaMain1.write(EstadoMod);	
 			ArchivoMensajeModelo1.write(Solucion); 		
 			ArchivoFinalizaMain1.close();	
-			ArchivoMensajeModelo1.close();	
+			ArchivoMensajeModelo1.close();
+
+			
+
 	}
 	else{	
 			var NoSolucion;
@@ -291,6 +299,8 @@ main{												/*El comando Main indica que se va a realizar un control de flu
  			ArchivoFinalizaMain2.write("0");
 			ArchivoMensajeModelo2.write(NoSolucion);	
 			ArchivoFinalizaMain2.close();	
-			ArchivoMensajeModelo2.close();							
+			ArchivoMensajeModelo2.close();
+
+			writeln("ESTADO_EJECUCION=ERROR");							
 	}
 }

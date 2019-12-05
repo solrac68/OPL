@@ -10,6 +10,8 @@ using Microsoft.Extensions.Configuration;
 using RabbitMQ.Client;
 using RabbitMQ.Client.Events;
 using System.Text;
+using System.Text.Json;
+using System.Text.Json.Serialization;
 
 namespace WorkerOpl
 {
@@ -19,11 +21,16 @@ namespace WorkerOpl
         private readonly IConfiguration _configuration = null;
         private HttpClient client;
         private Dequeue dequeue;
-        private String _DATADIR = null;
-        private String _ARCHIVO = null;
-        private String _DATA = null;
-        private String _COLA = null;
-        
+        private readonly String _DATADIR = null;
+        private readonly String _ARCHIVO = null;
+        private readonly String _DATA = null;
+        private readonly String _COLA = null;
+        private readonly String _ERROR = null;
+        private readonly String _FAILED = null;
+        private readonly String _OK = null;
+        private readonly String _COLARESULTADO = null;
+        private readonly String _SERVER = null;
+
 
         public Worker(ILogger<Worker> logger, IConfiguration configuration)
         {
@@ -33,6 +40,11 @@ namespace WorkerOpl
             this._ARCHIVO = _configuration["main"];
             this._DATA = _configuration["data"];
             this._COLA = _configuration["cola"];
+            this._COLARESULTADO = _configuration["colaresultado"];
+            this._SERVER = _configuration["server"];
+            this._ERROR = _configuration["error"];
+            this._FAILED = _configuration["failed"];
+            this._OK = _configuration["ok"];
         }
 
         public override Task StartAsync(CancellationToken cancellationToken)
@@ -55,15 +67,18 @@ namespace WorkerOpl
         /// <returns></returns>
         protected override async Task ExecuteAsync(CancellationToken stoppingToken)
         {
-            dequeue = new Dequeue(this._COLA);
+            dequeue = new Dequeue(this._SERVER, this._COLA);
             dequeue.mensaje += Dequeue_mensaje;
             await dequeue.CreateListenerQueue(stoppingToken);
         }
 
         private void Dequeue_mensaje(object sender, string e)
         {
+            Dictionary<string, object> dictResponse = new Dictionary<string, object>();
+            String jsonResponse;
+            Enqueue enqueue;
 
-            _logger.LogInformation(" [x] Received {0}\n", e);
+            _logger.LogInformation("\n\n[x] Received {0}\n", e);
 
             DataOpti dataOpti = Map.StrToDataOpti(e);
 
@@ -76,11 +91,15 @@ namespace WorkerOpl
 
             dataOpti.FechaFincalculo = DateTime.Now;
 
-            _logger.LogInformation(" [x] Codcaso: {0}", dataOpti.CodCaso);
-            _logger.LogInformation(" [x] FechaEncolamiento: {0}", dataOpti.FechaEncolamiento.ToString("s"));
-            _logger.LogInformation(" [x] FechaOperativa: {0}", dataOpti.FechaOperativa.ToString("s"));
-            _logger.LogInformation(" [x] FechaFincalculo: {0}", dataOpti.FechaFincalculo.ToString("s"));
-            _logger.LogInformation(" Resultados:\n {0}", result);
+            dictResponse = Map.DataOptiToDic(dataOpti, result, this._FAILED, this._ERROR, this._OK);
+
+            jsonResponse = JsonSerializer.Serialize<Dictionary<string, object>>(dictResponse);
+
+            _logger.LogInformation(" [x] Resultados: \n{0}\n", jsonResponse);
+
+            //enqueue = new Enqueue(_COLARESULTADO, _SERVER);
+
+            //enqueue.add(jsonResponse);
 
         }
     }

@@ -27,7 +27,7 @@ namespace WorkerOpl
 
         public async Task CreateListenerQueue(CancellationToken stoppingToken)
         {
-            var factory = new ConnectionFactory() { HostName = this.host };
+            var factory = new ConnectionFactory() { HostName = this.host, UserName= "admin", Password= "S0p0rt3l0cal", Port= 5672 };
             using (var connection = factory.CreateConnection())
             {
                 using (var channel = connection.CreateModel())
@@ -35,7 +35,7 @@ namespace WorkerOpl
                     channel.QueueDeclare(queue: this.cola,
                                             durable: true,
                                             exclusive: false,
-                                            autoDelete: false,
+                                            autoDelete: false, // era false
                                             arguments: null);
 
                     channel.BasicQos(prefetchSize: 0, prefetchCount: 1, global: false);
@@ -50,10 +50,11 @@ namespace WorkerOpl
                         mensaje?.Invoke(this, message);
 
                         channel.BasicAck(deliveryTag: ea.DeliveryTag, multiple: false);
+
                     };
 
                     channel.BasicConsume(queue: this.cola,
-                                            autoAck: false,
+                                            autoAck: false, // era false
                                             consumer: consumer);
 
                     while (!stoppingToken.IsCancellationRequested && channel.IsOpen)

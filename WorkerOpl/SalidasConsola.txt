@@ -1,0 +1,3 @@
+﻿ESTADO_EJECUCION=OK
+ESTADO_EJECUCION=ERROR
+### OPL exception: Processing failed.

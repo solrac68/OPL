@@ -32,7 +32,8 @@ namespace WorkerOpl
 
             try
             {
-                Log.Information("Iniciando el Servicio");
+                string userName = System.Security.Principal.WindowsIdentity.GetCurrent().Name;
+                Log.Information("Iniciando el Servicio, Usuario: {0}", userName);
                 CreateHostBuilder(args).Build().Run();
                 return;
             }
