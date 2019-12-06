@@ -30,6 +30,9 @@ namespace WorkerOpl
         private readonly String _OK = null;
         private readonly String _COLARESULTADO = null;
         private readonly String _SERVER = null;
+        private readonly String _USERQUEUE = null;
+        private readonly String _PASSQUEUE = null;
+        private readonly int _PORTQUEUE = -1;
 
 
         public Worker(ILogger<Worker> logger, IConfiguration configuration)
@@ -45,6 +48,9 @@ namespace WorkerOpl
             this._ERROR = _configuration["error"];
             this._FAILED = _configuration["failed"];
             this._OK = _configuration["ok"];
+            this._USERQUEUE = _configuration["userQueue"];
+            this._PASSQUEUE = _configuration["passQueue"];
+            this._PORTQUEUE = int.Parse(_configuration["portQueue"]);
         }
 
         public override Task StartAsync(CancellationToken cancellationToken)
@@ -67,7 +73,7 @@ namespace WorkerOpl
         /// <returns></returns>
         protected override async Task ExecuteAsync(CancellationToken stoppingToken)
         {
-            dequeue = new Dequeue(this._SERVER, this._COLA);
+            dequeue = new Dequeue(this._SERVER, this._COLA,this._USERQUEUE, this._PASSQUEUE, this._PORTQUEUE);
             dequeue.mensaje += Dequeue_mensaje;
             await dequeue.CreateListenerQueue(stoppingToken);
         }
@@ -97,9 +103,9 @@ namespace WorkerOpl
 
             _logger.LogInformation(" [x] Resultados: \n{0}\n", jsonResponse);
 
-            //enqueue = new Enqueue(_COLARESULTADO, _SERVER);
+            enqueue = new Enqueue(_COLARESULTADO, _SERVER, this._USERQUEUE, this._PASSQUEUE, this._PORTQUEUE);
 
-            //enqueue.add(jsonResponse);
+            enqueue.add(jsonResponse);
 
         }
     }

@@ -10,24 +10,31 @@ namespace WorkerOpl
 {
     class Dequeue
     {
-        String host = null;
-        String cola = null;
-        
+        readonly String host = null;
+        readonly String cola = null;
+        readonly int portQueue = 0;
+        readonly String userQueue = null;
+        readonly String passQueue = null;
+
+
         public event EventHandler<String> mensaje;
-        public Dequeue(String host, String cola)
+        public Dequeue(String host, String cola, string userQueue, string passQueue, int portQueue)
         {
             this.host = host;
             this.cola = cola;
+            this.userQueue = userQueue;
+            this.passQueue = passQueue;
+            this.portQueue = portQueue;
         }
 
-        public Dequeue(String cola) : this("localhost", cola) { }
+        public Dequeue(String cola) : this("localhost", cola,"guest","guest",5672) { }
 
-        public Dequeue():this("localhost", "colaInputOpl")
+        public Dequeue():this("colaInputOpl")
         {}
 
         public async Task CreateListenerQueue(CancellationToken stoppingToken)
         {
-            var factory = new ConnectionFactory() { HostName = this.host, UserName= "admin", Password= "S0p0rt3l0cal", Port= 5672 };
+            var factory = new ConnectionFactory() { HostName = this.host, UserName= this.userQueue, Password= this.passQueue, Port= this.portQueue};
             using (var connection = factory.CreateConnection())
             {
                 using (var channel = connection.CreateModel())
