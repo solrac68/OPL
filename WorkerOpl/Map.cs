@@ -45,6 +45,9 @@ namespace WorkerOpl
             dictResponse.Add("fechaOperativa", dataOpti.FechaOperativa.ToString("s"));
             dictResponse.Add("fechaFincalculo", dataOpti.FechaFincalculo.ToString("s"));
             dictResponse.Add("fileId", dataOpti.FileId);
+
+            result = result.Replace("\n", string.Empty).Replace("\r", string.Empty).Replace("\u003C", string.Empty).Replace("\u003E", string.Empty);
+
             dictResponse.Add("result", result);
 
             if (result.Contains(ok))
